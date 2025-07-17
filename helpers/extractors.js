@@ -1,55 +1,65 @@
 // helpers/extractors.js
-import { extractOriginalPrice } from "./price.js";
-import { extractDescription } from "./description.js";
 import { extractVariants } from "./variants.js";
+import { extractDescription } from "./description.js";
 
 export async function extractMacysProductData(page, url) {
-  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
-  await page.waitForTimeout(3000);
+  try {
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+    console.info(`✅ Page loaded: ${url}`);
 
-  const handle = url.split("?")[0].split("/").pop().replace(/[^a-zA-Z0-9-_]/g, "_");
-  const title = await page.$eval("h1.product-title", el => {
-    const brand = el.querySelector("a")?.textContent.trim() || "";
-    const name = el.querySelector("span")?.textContent.trim() || "";
-    return `${brand}, ${name}`;
-}
-).catch(() => "");
-console.info(`✅ Title extracted: ${title}`);
+    const title = await page
+      .$eval("h1.product-title", (el) => {
+        const brand = el.querySelector("a")?.textContent.trim() || "";
+        const name = el.querySelector("span")?.textContent.trim() || "";
+        return `${brand}, ${name}`;
+      })
+      .catch(() => "");
+    console.info(`✅ Title extracted: ${title}`);
 
+    const breadcrumbs = await page
+      .$$eval("nav.breadcrumbs a", (links) => links.map((a) => a.textContent.trim()).join(" > "))
+      .catch(() => "");
+    console.info(`✅ Breadcrumbs extracted: ${breadcrumbs}`);
 
+    const mainImage = await page
+      .$eval("img.primary-image", (img) => img.src)
+      .catch(() => "");
+    console.info(`✅ Main image extracted: ${mainImage}`);
 
-  const breadcrumbs = await page.$$eval("ol li.p-menuitem > a", anchors =>
-    anchors.map(a => a.textContent.trim()).filter(Boolean).join(", ")
-  ).catch(() => "");
-console.info(`✅ breadcrumbs extracted: ${breadcrumbs}`);
-  const mainImage = await page.$eval("div.picture-container img", img => img.src).catch(() => "");
-console.info(`✅ mainImage extracted: ${mainImage}`);
-  const originalPrice = await extractOriginalPrice(page);
-  const variantPrice = originalPrice ? +(originalPrice * 1.3).toFixed(2) : 0;
-  console.info(`✅ Price extracted: ${price}`);
-  const description = await extractDescription(page);
-   console.info(`✅ Description extracted: ${description.slice(0, 100)}...`)
-  const variants = await extractVariants(page);
- console.info(`✅ variants extracted: ${variants}`)
-  const allShopifyRows = variants.map((variant, idx) => ({
-    Handle: handle,
-    Title: idx === 0 ? title : "",
-    "Body (HTML)": idx === 0 ? description : "",
-    "Option1 Name": "Color",
-    "Option1 Value": variant.color || "",
-    "Option2 Name": "Size",
-    "Option2 Value": variant.size || "",
-    "Cost per item": originalPrice || "",
-    "Variant Price": variantPrice,
-    "Image Src": idx === 0 ? variant.colorImage || mainImage : "",
-    Tags: breadcrumbs,
-    "Vendor": "Macys",
-    "Variant SKU": "",
-    "Variant Fulfillment Service": "manual",
-    "Variant Inventory Tracker": "shopify",
-    "Variant Inventory Policy": "deny",
-    original_product_url: idx === 0 ? url : "",
-  }));
+    const price = await page
+      .$eval("span.price-red", (el) => el.textContent.replace(/[^\d.]/g, "").trim())
+      .catch(() => "");
+    console.info(`✅ Price extracted: ${price}`);
 
-  return allShopifyRows;
+    const originalPrice = await page
+      .$eval("span.price-strike", (el) => el.textContent.replace(/[^\d.]/g, "").trim())
+      .catch(() => "");
+    console.info(`✅ Original Price extracted: ${originalPrice}`);
+
+    const color = await page
+      .$eval('span[data-testid="selected-color-name"]', (el) => el.textContent.trim())
+      .catch(() => "");
+    console.info(`✅ Color extracted: ${color}`);
+
+    const description = await extractDescription(page);
+    console.info(`✅ Description extracted: ${description?.substring(0, 100)}...`);
+
+    const variants = await extractVariants(page);
+    console.info(`✅ Variants extracted: ${variants.length} variants`);
+
+    return {
+      Handle: url.split("/").pop().split("?")[0],
+      Title: title,
+      Tags: breadcrumbs,
+      Body: description,
+      "Variant Price": price,
+      "Compare At Price": originalPrice,
+      "Image Src": mainImage,
+      "Option1 Value": color,
+      Variants: variants,
+    };
+  } catch (error) {
+    console.error(`❌ Error scraping: ${url} ${error.message}`);
+    return null;
+  }
 }
