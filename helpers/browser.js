@@ -1,10 +1,10 @@
 // helpers/browser.js
-import "dotenv/config";
-import { chromium } from "playwright";
-const headless = process.env.HEADLESS?.toLowerCase() === "true";
+// import "dotenv/config";
+// import { chromium } from "playwright";
+// const headless = process.env.HEADLESS?.toLowerCase() === "true";
 export async function launchBrowser() {
   const browser = await chromium.launch({
-    headless: headless,
+    headless: true,
     channel: 'chrome',
     args: [
      '--disable-gpu',
