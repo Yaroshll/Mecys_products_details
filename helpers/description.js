@@ -1,20 +1,22 @@
 // helpers/description.js
 export async function extractDescription(page) {
   try {
-    // Click the details button
-    await page.locator('button.switch.link-med').click({ timeout: 10000 });
+    // If the button exists, click it
+    const button = await page.$('button.switch.link-med');
+    if (button) await button.click();
 
-    await page.waitForSelector('div#details-drawer > div > p', { timeout: 5000 });
+    // Wait for the description or fallback to extract without clicking
+    await page.waitForSelector('div#details-drawer > div > p', { timeout: 5000 }).catch(() => {});
+
     const mainDescription = await page.$eval(
       'div#details-drawer > div > p',
       (el) => el.innerHTML.trim()
-    );
+    ).catch(() => "");
 
-    // Extract Features List
     const featuresList = await page.$$eval(
       'ul li.column[data-auto="product-summary-section"] div ul li span',
       (items) => items.map((el) => `<li>${el.innerHTML.trim()}</li>`).join("")
-    );
+    ).catch(() => "");
 
     let featuresHtml = "";
     if (featuresList) {
