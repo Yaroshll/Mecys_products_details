@@ -1,0 +1,19 @@
+{
+  "name": "mecys_products_details",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  
+  "description": "",
+  "type": "module",
+  "dependencies": {
+    "dotenv": "^17.2.0",
+    "playwright": "^1.54.1",
+    "xlsx": "^0.18.5"
+  }
+}
