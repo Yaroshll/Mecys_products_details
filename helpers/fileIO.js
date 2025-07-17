@@ -1,34 +1,23 @@
-// helpers/fileIO.js
-import fs from "fs";
-import path from "path";
-import xlsx from "xlsx";
-// helpers/fileIO.js
-export function saveToCSVAndExcel({ productRows = [], csv = true, excel = true, failedUrls = [] }) {
-  const rows = Array.isArray(productRows) ? productRows : [];
-  if (!rows.length) {
-    console.warn("⚠️ No product rows to save.");
-    return;
+import fs from 'fs';
+import path from 'path';
+import { CSV_HEADERS } from './constants.js';
+
+export function saveToCSV(data, filename = 'products.csv') {
+  const outputDir = './output';
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir);
   }
 
-  const now = new Date();
-  const timestamp = now.toISOString().slice(0, 16).replace("T", "_").replace(":", "-");
-  const fileName = `Mecys_products_${timestamp}`;
-  const outputDir = "./output";
+  const filePath = path.join(outputDir, filename);
+  
+  // Create CSV content
+  const rows = data.map(item => 
+    CSV_HEADERS.map(header => {
+      const value = item[header] || '';
+      return `"${String(value).replace(/"/g, '""')}"`;
+    }).join(',')
+  );
 
-  if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
-
-  const ws = xlsx.utils.json_to_sheet(rows);
-  const wb = xlsx.utils.book_new();
-  xlsx.utils.book_append_sheet(wb, ws, "Products");
-
-  if (csv) xlsx.writeFile(wb, path.join(outputDir, `${fileName}.csv`), { bookType: "csv" });
-  if (excel) xlsx.writeFile(wb, path.join(outputDir, `${fileName}.xlsx`));
-
-  if (failedUrls.length) {
-    fs.writeFileSync(
-      path.join(outputDir, `${fileName}_failed.json`),
-      JSON.stringify(failedUrls, null, 2),
-      "utf-8"
-    );
-  }
+  const csvContent = [CSV_HEADERS.join(','), ...rows].join('\n');
+  fs.writeFileSync(filePath, csvContent, 'utf-8');
 }
