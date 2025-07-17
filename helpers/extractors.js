@@ -12,20 +12,25 @@ export async function extractMacysProductData(page, url) {
     const brand = el.querySelector("a")?.textContent.trim() || "";
     const name = el.querySelector("span")?.textContent.trim() || "";
     return `${brand}, ${name}`;
-  }).catch(() => "");
+}
+).catch(() => "");
+console.info(`✅ Title extracted: ${title}`);
+
+
 
   const breadcrumbs = await page.$$eval("ol li.p-menuitem > a", anchors =>
     anchors.map(a => a.textContent.trim()).filter(Boolean).join(", ")
   ).catch(() => "");
-
+console.info(`✅ breadcrumbs extracted: ${breadcrumbs}`);
   const mainImage = await page.$eval("div.picture-container img", img => img.src).catch(() => "");
-
+console.info(`✅ mainImage extracted: ${mainImage}`);
   const originalPrice = await extractOriginalPrice(page);
   const variantPrice = originalPrice ? +(originalPrice * 1.3).toFixed(2) : 0;
-
+  console.info(`✅ Price extracted: ${price}`);
   const description = await extractDescription(page);
+   console.info(`✅ Description extracted: ${description.slice(0, 100)}...`)
   const variants = await extractVariants(page);
-
+ console.info(`✅ variants extracted: ${variants}`)
   const allShopifyRows = variants.map((variant, idx) => ({
     Handle: handle,
     Title: idx === 0 ? title : "",
