@@ -4,7 +4,7 @@ import { chromium } from "playwright";
 // const headless = process.env.HEADLESS?.toLowerCase() === "true";
 export async function launchBrowser() {
   const browser = await chromium.launch({
-    headless: true,
+    headless: false,
     channel: 'chrome',
     args: [
      '--disable-gpu',

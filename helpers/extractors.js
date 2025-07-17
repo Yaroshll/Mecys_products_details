@@ -1,65 +1,45 @@
-// helpers/extractors.js
 import { extractVariants } from "./variants.js";
-import { extractDescription } from "./description.js";
+import { getDescription } from "./description.js";
+import { formatHandleFromUrl, calculatePrices } from "./utils.js";
 
-export async function extractMacysProductData(page, url) {
-  try {
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
-    console.info(`✅ Page loaded: ${url}`);
+export async function extractProductData(page, url) {
+  const handle = formatHandleFromUrl(url);
+  await page.goto(url, { waitUntil: "domcontentloaded" });
 
-    const title = await page
-      .$eval("h1.product-title", (el) => {
-        const brand = el.querySelector("a")?.textContent.trim() || "";
-        const name = el.querySelector("span")?.textContent.trim() || "";
-        return `${brand}, ${name}`;
-      })
-      .catch(() => "");
-    console.info(`✅ Title extracted: ${title}`);
+  const title = await page.$eval('h1.product-title', el => {
+    const brand = el.querySelector('a')?.textContent.trim() || '';
+    const name = el.querySelector('span')?.textContent.trim() || '';
+    return `${brand}, ${name}`;
+  }).catch(() => '');
 
-    const breadcrumbs = await page
-      .$$eval("nav.breadcrumbs a", (links) => links.map((a) => a.textContent.trim()).join(" > "))
-      .catch(() => "");
-    console.info(`✅ Breadcrumbs extracted: ${breadcrumbs}`);
+  const breadcrumbs = await page.$$eval('div.breadcrumbs ul li a', els =>
+    els.map(e => e.textContent.trim()).filter(e => e.toLowerCase() !== 'home')
+  ).catch(() => []);
 
-    const mainImage = await page
-      .$eval("img.primary-image", (img) => img.src)
-      .catch(() => "");
-    console.info(`✅ Main image extracted: ${mainImage}`);
+  const mainImage = await page.$eval('img.main-img', img => img.src).catch(() => '');
 
-    const price = await page
-      .$eval("span.price-red", (el) => el.textContent.replace(/[^\d.]/g, "").trim())
-      .catch(() => "");
-    console.info(`✅ Price extracted: ${price}`);
+  const priceText = await page.$eval('span.price-red span[aria-label*="Current Price"]', el => el.textContent).catch(() => '');
+  const price = parseFloat(priceText.replace(/[^\d.]/g, "")) || 0;
 
-    const originalPrice = await page
-      .$eval("span.price-strike", (el) => el.textContent.replace(/[^\d.]/g, "").trim())
-      .catch(() => "");
-    console.info(`✅ Original Price extracted: ${originalPrice}`);
+  const originalPriceText = await page.$eval('span.price-strike', el => el.textContent).catch(() => '');
+  const originalPrice = parseFloat(originalPriceText.replace(/[^\d.]/g, "")) || price;
 
-    const color = await page
-      .$eval('span[data-testid="selected-color-name"]', (el) => el.textContent.trim())
-      .catch(() => "");
-    console.info(`✅ Color extracted: ${color}`);
+  const color = await page.$eval('span[data-testid="selected-color-name"]', el => el.textContent.trim()).catch(() => '');
 
-    const description = await extractDescription(page);
-    console.info(`✅ Description extracted: ${description?.substring(0, 100)}...`);
+  const description = await getDescription(page);
 
-    const variants = await extractVariants(page);
-    console.info(`✅ Variants extracted: ${variants.length} variants`);
+  const variants = await extractVariants(page);
 
-    return {
-      Handle: url.split("/").pop().split("?")[0],
-      Title: title,
-      Tags: breadcrumbs,
-      Body: description,
-      "Variant Price": price,
-      "Compare At Price": originalPrice,
-      "Image Src": mainImage,
-      "Option1 Value": color,
-      Variants: variants,
-    };
-  } catch (error) {
-    console.error(`❌ Error scraping: ${url} ${error.message}`);
-    return null;
-  }
+  return {
+    handle,
+    title,
+    breadcrumbs,
+    mainImage,
+    price,
+    originalPrice,
+    color,
+    description,
+    variants,
+    url,
+  };
 }
