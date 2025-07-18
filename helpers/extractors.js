@@ -1,6 +1,30 @@
 // helpers/extractors.js
 import { SELECTORS, VARIANT_PRICE_RATE } from './constants.js';
 
+// --- NEW: Helper function for URL formatting ---
+export function formatHandleFromUrl(url) {
+  try {
+    const urlObj = new URL(url);
+    const pathnameParts = urlObj.pathname.split('/').filter(Boolean); // Split by / and remove empty strings
+    // Take the last part of the pathname (e.g., "jessica-simpson-olivine-bow-high-heel-stiletto-dress-sandals")
+    let handle = pathnameParts[pathnameParts.length - 1];
+
+    // Remove common URL parameters that might be appended after the main path
+    handle = handle.split('?')[0].split('#')[0];
+
+    // Replace non-alphanumeric characters (except hyphens) with hyphens,
+    // convert to lowercase, and trim extra hyphens.
+    handle = handle.replace(/[^a-z0-9-]/gi, '-').toLowerCase();
+    handle = handle.replace(/--+/g, '-').replace(/^-|-$/g, ''); // Replace multiple hyphens with single, remove leading/trailing hyphens
+
+    return handle;
+  } catch (e) {
+    console.warn(`⚠️ Could not format handle from URL ${url}: ${e.message}`);
+    return null; // Return null or a default if URL is invalid
+  }
+}
+// --- END NEW ---
+
 // Helper function for navigation with retries
 export async function gotoMacyWithRetries(page, url, maxRetries = 3) {
   for (let i = 0; i < maxRetries; i++) {
@@ -175,12 +199,17 @@ export async function extractMacyProductData(page, url, extraTags) {
         content: `
           #global-header, .slideout-header, [data-auto="product-details-section-shipping"], .sticky-bottom-bar, #teleported, /* common Macy's overlays/fixed elements */
           .modal-overlay, .modal-dialog, /* generic popup/modal selectors */
-          .loyalty-banner, .toast-notification /* other banners/notifications if they appear */
+          .loyalty-banner, .toast-notification, /* other banners/notifications if they appear */
+          /* Macy's specific elements that often overlay or interact */
+          #modal-root, [role="dialog"], .ReactModal__Overlay, .ReactModal__Content,
+          .enhanced-offer-banner, .interstitial-modal, .cookie-banner, .footer-container
           {
             visibility: hidden !important;
             pointer-events: none !important;
             height: 0 !important;
             overflow: hidden !important;
+            opacity: 0 !important; /* Ensure no visual presence */
+            display: none !important; /* Strongest hide option */
           }
         `
       });
@@ -191,7 +220,7 @@ export async function extractMacyProductData(page, url, extraTags) {
     // --- END NEW ---
 
 
-    const handle = formatHandleFromUrl(url);
+    const handle = formatHandleFromUrl(url); // Now `formatHandleFromUrl` is defined
     const { brand, productName, title } = await extractTitle(page);
     const descriptionHtml = await extractFullDescription(page);
     const breadcrumbs = await extractBreadcrumbs(page);
