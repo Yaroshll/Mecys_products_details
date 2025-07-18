@@ -1,7 +1,7 @@
 export const SELECTORS = {
   PRODUCT: {
     TITLE: 'h1.product-title',
-    BRAND: 'h1.product-title a',
+    BRAND: 'h1.product-title label a',
     PRODUCT_NAME: 'h1.product-title span',
     PRICE: 'div.price-wrapper span[aria-label]',
     MAIN_IMAGE: 'div.picture-container img',

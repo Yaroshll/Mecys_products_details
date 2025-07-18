@@ -3,12 +3,18 @@ import { SELECTORS } from './constants.js';
 export async function extractTitle(page) {
   try {
     await page.waitForSelector(SELECTORS.PRODUCT.TITLE, { timeout: 5000 });
-    const brand = await page.$eval(SELECTORS.PRODUCT.BRAND, el => el.textContent.trim());
-    const productName = await page.$eval(SELECTORS.PRODUCT.PRODUCT_NAME, el => el.textContent.trim());
+    const titleElement = await page.$(SELECTORS.PRODUCT.TITLE);
+    
+    // Extract brand from the <a> tag within h1
+    const brand = await titleElement.$eval(SELECTORS.PRODUCT.BRAND + ' a', el => el.textContent.trim());
+    
+    // Extract product name from the <span> tag within h1
+    const productName = await titleElement.$eval(SELECTORS.PRODUCT.PRODUCT_NAME + ' span', el => el.textContent.trim());
+    
     console.log('✅ Title extracted successfully.');
     return `${brand}, ${productName}`;
-  } catch {
-    console.log('⚠️ Title not found.');
+  } catch (error) {
+    console.log('⚠️ Title not found.', error.message);
     return '';
   }
 }
