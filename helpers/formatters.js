@@ -1,10 +1,14 @@
-export function formatHandleFromUrl(url) {
+export function formatHandleFromUrl(url, fallbackTitle = '') {
   try {
     const urlObj = new URL(url);
     const pathParts = urlObj.pathname.split('/');
-    return pathParts[pathParts.length - 1].replace(/\?.*$/, '').replace(/-/g, '_');
+    let handle = pathParts.pop() || pathParts.pop();
+    if (!handle) {
+      return fallbackTitle.toLowerCase().replace(/\s+/g, '_').replace(/[^\w\-]/g, '');
+    }
+    return handle.replace(/\?.*$/, '').replace(/[^a-zA-Z0-9]+/g, '_');
   } catch {
-    return '';
+    return fallbackTitle.toLowerCase().replace(/\s+/g, '_').replace(/[^\w\-]/g, '');
   }
 }
 

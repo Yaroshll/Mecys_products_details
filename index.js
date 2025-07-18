@@ -1,12 +1,12 @@
 import { launchBrowser } from './helpers/browser.js';
-import { 
+import {
   extractTitle,
   extractPrice,
   extractMainImage,
   extractBreadcrumbs,
   extractDescription,
-  getColorVariants,
-  getSizeVariants
+  //getColorVariants,
+ // getSizeVariants
 } from './helpers/extractors.js';
 import { saveToCSV } from './helpers/fileIO.js';
 import { formatHandleFromUrl, calculateVariantPrice } from './helpers/formatters.js';
@@ -14,119 +14,126 @@ import { formatHandleFromUrl, calculateVariantPrice } from './helpers/formatters
 (async () => {
   const browser = await launchBrowser();
   const page = await browser.newPage();
-  
+
   const urls = [
     'https://www.macys.com/shop/product/jessica-simpson-olivine-bow-high-heel-stiletto-dress-sandals?ID=19766033'
-    // Add more URLs here
+    // Add more product URLs here
   ];
 
   const allProducts = [];
   let successCount = 0;
 
-  console.log(`Starting to process ${urls.length} URLs...`);
+  console.log(`🚀 Starting scraping for ${urls.length} URLs...`);
 
-  for (const url of urls) {
+  for (const [index, url] of urls.entries()) {
     try {
-      console.log(`Processing: ${url}`);
+      console.log(`➡️ (${index + 1}/${urls.length}) Processing: ${url}`);
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
 
-      // Extract basic info
-      const handle = formatHandleFromUrl(url);
       const title = await extractTitle(page);
+      const handle = formatHandleFromUrl(url, title);
       const costPerItem = await extractPrice(page);
       const variantPrice = calculateVariantPrice(costPerItem);
       const mainImage = await extractMainImage(page);
       const tags = await extractBreadcrumbs(page);
       const description = await extractDescription(page);
 
-      // Handle variants
-      const colorVariants = await getColorVariants(page);
-      const sizeVariants = await getSizeVariants(page);
+      console.log('📝 Basic product info extracted.');
 
-      if (colorVariants.length === 0 && sizeVariants.length === 0) {
-        // No variants case
-        allProducts.push(createProductRow({
-          handle, title, description, tags, url,
-          costPerItem, variantPrice, mainImage
-        }));
-        successCount++;
-        console.log(`✅ Success (no variants): ${url} (${successCount}/${urls.length})`);
-      } 
-      else if (colorVariants.length > 0 && sizeVariants.length > 0) {
-        // Both color and size variants
-        for (const color of colorVariants) {
-          await color.element.click();
-          await page.waitForTimeout(1000);
-          
-          const colorImage = await extractMainImage(page);
-          const currentPrice = await extractPrice(page);
-          const currentVariantPrice = calculateVariantPrice(currentPrice);
-          
-          for (const size of sizeVariants) {
-            allProducts.push(createProductRow({
-              handle, title, description, tags, url,
-              costPerItem: currentPrice,
-              variantPrice: currentVariantPrice,
-              mainImage: colorImage,
-              option1Name: 'Color',
-              option1Value: color.label,
-              option2Name: 'Size',
-              option2Value: size
-            }));
-          }
-        }
-        successCount++;
-        console.log(`✅ Success (color+size variants): ${url} (${successCount}/${urls.length})`);
-      }
-      else if (colorVariants.length > 0) {
-        // Only color variants
-        for (const color of colorVariants) {
-          await color.element.click();
-          await page.waitForTimeout(1000);
-          
-          const colorImage = await extractMainImage(page);
-          const currentPrice = await extractPrice(page);
-          const currentVariantPrice = calculateVariantPrice(currentPrice);
-          
-          allProducts.push(createProductRow({
-            handle, title, description, tags, url,
-            costPerItem: currentPrice,
-            variantPrice: currentVariantPrice,
-            mainImage: colorImage,
-            option1Name: 'Color',
-            option1Value: color.label
-          }));
-        }
-        successCount++;
-        console.log(`✅ Success (color variants only): ${url} (${successCount}/${urls.length})`);
-      }
-      else if (sizeVariants.length > 0) {
-        // Only size variants
-        for (const size of sizeVariants) {
-          allProducts.push(createProductRow({
-            handle, title, description, tags, url,
-            costPerItem, variantPrice, mainImage,
-            option1Name: 'Size',
-            option1Value: size
-          }));
-        }
-        successCount++;
-        console.log(`✅ Success (size variants only): ${url} (${successCount}/${urls.length})`);
-      }
+      // const colorVariants = await getColorVariants(page);
+      // const sizeVariants = await getSizeVariants(page);
 
+      // if (colorVariants.length === 0 && sizeVariants.length === 0) {
+      //   console.log('ℹ️ No variants detected. Saving base product.');
+      //   allProducts.push(createProductRow({
+      //     handle, title, description, tags, url,
+      //     costPerItem, variantPrice, mainImage
+      //   }));
+      // }
+      // else if (colorVariants.length > 0 && sizeVariants.length > 0) {
+      //   console.log('ℹ️ Color & Size variants found. Looping...');
+      //   for (const color of colorVariants) {
+      //     await color.element.click();
+      //     await page.waitForTimeout(1000);
+
+      //     const colorImage = await extractMainImage(page);
+      //     const colorPrice = await extractPrice(page);
+      //     const colorVariantPrice = calculateVariantPrice(colorPrice);
+
+      //     // Save color only
+      //     allProducts.push(createProductRow({
+      //       handle, title, description, tags, url,
+      //       costPerItem: colorPrice,
+      //       variantPrice: colorVariantPrice,
+      //       mainImage: colorImage,
+      //       option1Name: 'Color',
+      //       option1Value: color.label
+      //     }));
+
+      //     // Loop on sizes with current color
+      //     for (const size of sizeVariants) {
+      //       allProducts.push(createProductRow({
+      //         handle, title, description, tags, url,
+      //         costPerItem: colorPrice,
+      //         variantPrice: colorVariantPrice,
+      //         mainImage: colorImage,
+      //         option1Name: 'Color',
+      //         option1Value: color.label,
+      //         option2Name: 'Size',
+      //         option2Value: size
+      //       }));
+      //     }
+      //   }
+      // }
+      // else if (colorVariants.length > 0) {
+      //   console.log('ℹ️ Only color variants found. Looping...');
+      //   for (const color of colorVariants) {
+      //     await color.element.click();
+      //     await page.waitForTimeout(1000);
+
+      //     const colorImage = await extractMainImage(page);
+      //     const colorPrice = await extractPrice(page);
+      //     const colorVariantPrice = calculateVariantPrice(colorPrice);
+
+      //     allProducts.push(createProductRow({
+      //       handle, title, description, tags, url,
+      //       costPerItem: colorPrice,
+      //       variantPrice: colorVariantPrice,
+      //       mainImage: colorImage,
+      //       option1Name: 'Color',
+      //       option1Value: color.label
+      //     }));
+      //   }
+      // }
+      // else if (sizeVariants.length > 0) {
+      //   console.log('ℹ️ Only size variants found. Looping...');
+      //   for (const size of sizeVariants) {
+      //     allProducts.push(createProductRow({
+      //       handle, title, description, tags, url,
+      //       costPerItem,
+      //       variantPrice,
+      //       mainImage,
+      //       option1Name: 'Size',
+      //       option1Value: size
+      //     }));
+      //   }
+      // }
+
+      successCount++;
+      console.log(`✅ Success (${successCount}/${urls.length}): ${url}`);
     } catch (error) {
-      console.error(`❌ Failed: ${url} - ${error.message}`);
+      console.error(`❌ Error processing: ${url} - ${error.message}`);
     }
   }
 
   await browser.close();
-  
+
   if (allProducts.length > 0) {
     saveToCSV(allProducts);
-    console.log(`\nFinished! Successfully processed ${successCount}/${urls.length} URLs.`);
-    console.log(`Saved ${allProducts.length} product variants to output/products.csv`);
+    console.log(`🎯 Finished successfully. Processed ${successCount} out of ${urls.length} URLs.`);
+    console.log(`📁 Saved ${allProducts.length} product rows to output/products.csv`);
   } else {
-    console.log('No products were scraped successfully.');
+    console.log('⚠️ No products were scraped.');
   }
 })();
 
@@ -161,7 +168,7 @@ function createProductRow({
     'Variant Inventory Policy': 'deny',
     'Variant Inventory Tracker': 'shopify',
     'Type': 'USA Products',
-    'Vendor': 'Macy\'s',
+    'Vendor': "Macy's",
     'Tags': tags,
     'original_product_url': url
   };

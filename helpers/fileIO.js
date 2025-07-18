@@ -9,9 +9,8 @@ export function saveToCSV(data, filename = 'products.csv') {
   }
 
   const filePath = path.join(outputDir, filename);
-  
-  // Create CSV content
-  const rows = data.map(item => 
+
+  const rows = data.map(item =>
     CSV_HEADERS.map(header => {
       const value = item[header] || '';
       return `"${String(value).replace(/"/g, '""')}"`;
@@ -20,4 +19,5 @@ export function saveToCSV(data, filename = 'products.csv') {
 
   const csvContent = [CSV_HEADERS.join(','), ...rows].join('\n');
   fs.writeFileSync(filePath, csvContent, 'utf-8');
+  console.log(`✅ CSV file saved: ${filePath}`);
 }
