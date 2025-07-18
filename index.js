@@ -16,9 +16,7 @@ import { formatHandleFromUrl, calculateVariantPrice } from './helpers/formatters
   const page = await browser.newPage();
 
   const urls = [
-    'https://www.macys.com/shop/product/jessica-simpson-olivine-bow-high-heel-stiletto-dress-sandals?ID=19766033'
-    // Add more product URLs here
-  ];
+    'https://www.macys.com/shop/product/jessica-simpson-womens-olivine-bow-high-heel-stiletto-dress-sandals?ID=19766033&intnl=true'];
 
   const allProducts = [];
   let successCount = 0;
