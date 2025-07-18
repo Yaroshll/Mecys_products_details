@@ -6,7 +6,7 @@ export const SELECTORS = {
     TITLE_NAME: "h1.product-title span", // Product name from h1
 
     // Image - UPDATED
-    MAIN_IMAGE: 'img.picture-image .loaded .stylitics-shop-similar', // Targets img tag within a picture tag
+    MAIN_IMAGE: 'div.picture-container > picture img.picture-image', // Targets img tag within a picture tag
 
     // Price - UPDATED for "Cost per item" (which seems to be the original strike-through price)
     // The user specified 'class="body-regular price-strike"' for "cost per item"
