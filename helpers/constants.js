@@ -43,7 +43,7 @@ export const SELECTORS = {
     SELECTED_SIZE_VALUE_DISPLAY: '.size-selector span[id^="selection-tile-"]', // For extracting the value of the currently selected size (starts with selection-tile-)
   },
   BREADCRUMBS: {
-    LINKS: 'nav[aria-label="breadcrumbs"] a, .breadcrumbs-container a, .breadcrumbs-wrapper a',
+    LINKS: 'ol.p-breadcrumb-list > li.p-menuitem > a',
   },
 };
 
