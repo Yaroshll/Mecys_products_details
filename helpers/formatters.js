@@ -1,64 +1,77 @@
-// helpers/formatters.js (After)
-import { VARIANT_PRICE_RATE } from "./constants.js"; // Only need VARIANT_PRICE_RATE here
+// helpers/formatters.js
+import { VARIANT_PRICE_RATE } from "./constants.js"; // Import the new rate
 
-// This function should be defined in extractors.js or a dedicated price utility if not already
-// Since it's used here and not defined, let's assume it's moved to extractors.js for now,
-// or we'll define a simple placeholder if it's not critical for now.
-export function generateCompareAtPrice({ variantPrice }) {
-  const min = 0.15;
-  const max = 0.3;
-  const randomPercent = min + Math.random() * (max - min);
-  const compareAtPrice = Math.round(variantPrice * (1 + randomPercent));
-  return compareAtPrice;
-}
-
-
+/**
+ * Formats a given URL into a Shopify-compatible handle.
+ * @param {string} url - The URL to format.
+ * @returns {string} The Shopify handle.
+ */
 export function formatHandleFromUrl(url) {
   try {
-    const urlObj = typeof url === "string" ? new URL(url) : url;
-    const pathParts = urlObj.pathname.split("/");
-    // Extract base handle before any potential ID or SKU
-    const baseHandle = pathParts[pathParts.indexOf("product") + 1]?.split("?")[0].replace(/-+$/, "");
-    const sku = extractSKU(urlObj);
-
-    if (!baseHandle || !sku) {
-        console.warn(`⚠️ Could not format handle for URL: ${url}. Base handle: ${baseHandle}, SKU: ${sku}`);
-        return null;
-    }
-
-    return `${baseHandle.replace(/[^\w-]/g, "")}_${sku}`.toLowerCase();
+    const urlObj = new URL(url);
+    let path = urlObj.pathname
+      .replace(/^\/|\/$/g, "")
+      .replace(/\.html$/, "")
+      .replace(/\.jsp$/, "");
+    let handle = path.replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase();
+    handle = handle.replace(/^-+|-+$/g, "");
+    return handle;
   } catch (error) {
-    console.error("❌ Invalid URL for handle extraction:", error.message);
-    return null;
+    console.warn("⚠️ Could not format handle from URL:", error.message);
+    return "";
   }
 }
 
+/**
+ * Extracts a SKU-like identifier from the product URL.
+ * @param {string} url - The product URL.
+ * @returns {string} A potential SKU.
+ */
 export function extractSKU(url) {
   try {
-    const urlObj = typeof url === "string" ? new URL(url) : url;
-    // Macy's product ID is usually in the 'ID' search param or part of the pathname
-    return urlObj.searchParams.get("ID") || urlObj.pathname.match(/ID=(\d+)/)?.[1] || null;
+    // Macy's URLs often have product IDs that can serve as a simple SKU
+    const match = url.match(/ID=(\d+)/i) || url.match(/-(\d+)\.html/i);
+    if (match && match[1]) {
+      return match[1];
+    }
   } catch (error) {
-    console.error("❌ Invalid URL for SKU extraction:", error.message);
-    return null;
+    console.warn("⚠️ Could not extract SKU from URL:", error.message);
   }
+  return "";
 }
 
-export function calculatePrices(previousPriceText) {
-  let costPerItem = 0;
-  // Regex to find "AED X.XX" or similar and capture the number
-  const match = previousPriceText.match(/AED\s*([\d.,]+)/);
-  if (match && match[1]) {
-    // Remove commas, convert to float
-    costPerItem = parseFloat(match[1].replace(/,/g, ''));
+/**
+ * Calculates variant price and compare at price based on the provided "cost per item" (displayed original price).
+ *
+ * @param {string} displayedCostPerItemText - The extracted text from the element
+ * identified as the 'cost per item' (e.g., "$100.00").
+ * @returns {{costPerItem: string, variantPrice: string, compareAtPrice: string}}
+ */
+export function calculatePrices(displayedCostPerItemText) {
+  let costPerItem = ""; // This will be the parsed value of the displayedCostPerItemText
+  let variantPrice = "";
+  let compareAtPrice = "";
+
+  if (displayedCostPerItemText) {
+    // Clean the extracted text to get a number
+    const cleanedCostPerItem = parseFloat(displayedCostPerItemText.replace(/[^0-9.]/g, ''));
+
+    if (!isNaN(cleanedCostPerItem)) {
+      costPerItem = cleanedCostPerItem.toFixed(2); // Use this as the base "cost" you wanted to extract
+
+      // Calculate variant price using the VARIANT_PRICE_RATE
+      const parsedVariantPrice = cleanedCostPerItem * VARIANT_PRICE_RATE;
+      variantPrice = parsedVariantPrice.toFixed(2);
+
+      // The "compareAtPrice" will be the original "cost per item" (strike-through price)
+      compareAtPrice = costPerItem;
+
+      // Log for debugging
+      console.log(`Original Price/Cost: ${costPerItem}, Calculated Variant Price: ${variantPrice}, Compare At Price: ${compareAtPrice}`);
+    } else {
+      console.warn(`Could not parse displayedCostPerItemText: "${displayedCostPerItemText}"`);
+    }
   }
 
-  // Calculate variant price based on the new requirement (1.3 * Cost per item)
-  const variantPrice = costPerItem * VARIANT_PRICE_RATE;
-
-  return {
-    costPerItem: costPerItem.toFixed(2), // Format to 2 decimal places
-    variantPrice: (Math.floor(variantPrice * 100) / 100).toFixed(2), // Round down to two decimal places
-    compareAtPrice: generateCompareAtPrice({ variantPrice }),
-  };
+  return { costPerItem, variantPrice, compareAtPrice };
 }

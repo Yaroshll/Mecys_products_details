@@ -1,38 +1,51 @@
-
 // helpers/constants.js
 export const SELECTORS = {
   PRODUCT: {
     // Title
-    TITLE_BRAND: 'h1.pdp-title span.brand', // Selector for the brand name
-    TITLE_NAME: 'h1.pdp-title span.product-name', // Selector for the product name
+    TITLE_BRAND: 'h1.pdp-title span.brand',
+    TITLE_NAME: 'h1.pdp-title span.product-name',
 
-    // Price
-    PRICE_WRAPPER: '.price-info', // A common parent for price elements
-    SALE_PRICE: '.price-info .sale-price', // Selector for sale price (if applicable)
-    ORIGINAL_PRICE: '.price-info .original-price', // Selector for original price (if applicable)
+    // Image - UPDATED
+    MAIN_IMAGE: 'picture img', // Targets img tag within a picture tag
 
-    // Image
-    MAIN_IMAGE: '.main-image-component img', // Selector for the main product image
+    // Price - UPDATED for "Cost per item" (which seems to be the original strike-through price)
+    // The user specified 'class="body-regular price-strike"' for "cost per item"
+    // This is typically the original price, not the wholesale cost.
+    // I'm naming it ORIGINAL_OR_STRIKE_PRICE to reflect its likely purpose on a public site.
+    ORIGINAL_OR_STRIKE_PRICE: '.body-regular.price-strike',
+    // You might still have a current/sale price selector if you want to extract it separately
+    CURRENT_PRICE: '.price-info .current-price, .price-info .sale-price', // Example for current/sale price
 
     // Description & Features
-    DESCRIPTION_BUTTON: 'button[id*="description-header"], button[aria-controls*="product-details-content"]', // Common buttons to expand description
-    DESCRIPTION_CONTENT: '.product-details-section #product-details-content', // Main description container after expanding
-    FEATURES_SECTION: 'section[data-auto="product-details-section-features"]', // Selector for the features section
-    SHIPPING_RETURNS_SECTION: 'section[data-auto="product-details-section-shipping"]', // Selector for shipping & returns
+    DESCRIPTION_BUTTON: 'button.switch.link-med',
+    DESCRIPTION_CONTENT_CONTAINER: 'div#details-drawer',
+    DESCRIPTION_MAIN_PARAGRAPH: 'div#details-drawer p',
+    DESCRIPTION_LIST_ITEMS: 'div#details-drawer ul > li.column',
+    FEATURES_SECTION: 'section[data-auto="product-details-section-features"]',
+    SHIPPING_RETURNS_SECTION: 'section[data-auto="product-details-section-shipping"]',
 
-    // Variants (Colors & Sizes)
-    COLOR_OPTION_NAME: 'legend:has-text("Color"), .color-swatches legend', // Selector for the text "Color"
-    COLOR_RADIO_LABELS: '.color-swatches .color-swatch-item label', // Labels for color radio buttons (clickable elements)
+    // Variants (Colors & Sizes) - UPDATED
+    // IMPORTANT: 'span data-testid="selected-color-name"' and 'span id="selection-tile-..."'
+    // are likely for *displaying* the currently selected variant, not for *clicking* to select variants.
+    // I will use more common selectors for *clickable elements* for iteration,
+    // and note the ones you provided if they are for getting the *value* of the selected item.
+    COLOR_OPTION_NAME: 'span.updated-label.label', // This appears to be the generic label for the option name
+    // For clickable color swatches, usually a label or div wrapping a radio input
+    COLOR_RADIO_LABELS: '.color-swatches .color-swatch-item label, .color-swatches [data-auto="color-swatch-label"]', // More general selectors for clickable elements.
+    // The user provided `span data-testid="selected-color-name"` which is likely the display of the *selected* color value.
+    SELECTED_COLOR_VALUE_DISPLAY: 'span[data-testid="selected-color-name"]', // For extracting the value of the currently selected color
 
-    SIZE_OPTION_NAME: 'legend:has-text("Size"), .size-selector legend', // Selector for the text "Size"
-    SIZE_RADIO_LABELS: '.size-selector .size-chip-item label', // Labels for size radio buttons/chips (clickable elements)
-  
-},
+    SIZE_OPTION_NAME: 'span.updated-label.label', // This appears to be the generic label for the option name
+    // For clickable size chips, usually a label or div wrapping a radio input
+    SIZE_RADIO_LABELS: '.size-selector .size-chip-item label, .size-selector [data-auto="size-tile-label"]', // More general selectors for clickable elements.
+    // The user provided `span id="selection-tile-5036768-1"` which is too specific.
+    // This is likely the display of the *selected* size value.
+    SELECTED_SIZE_VALUE_DISPLAY: '.size-selector span[id^="selection-tile-"]', // For extracting the value of the currently selected size (starts with selection-tile-)
+  },
   BREADCRUMBS: {
     LINKS: 'nav[aria-label="breadcrumbs"] a, .breadcrumbs-container a, .breadcrumbs-wrapper a',
-   // Breadcrumb links
   },
 };
 
-export const EXCHANGE_RATE = 3.675;
-export const VARIANT_PRICE_RATE = 1.3; // Corrected typo in variable name
+// Define the rate for calculating variant price from the cost per item (displayed original price)
+export const VARIANT_PRICE_RATE = 1.5; // Example: 50% markup. ADJUST THIS AS NEEDED!

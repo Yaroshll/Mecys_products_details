@@ -1,12 +1,11 @@
 // helpers/extractors.js
-// Removed import for description.js as its content is now in extractFullDescription
 import {
   calculatePrices,
   extractSKU,
   formatHandleFromUrl,
 } from "./formatters.js";
 import { gotoMacyWithRetries } from "./gotoWithRetries.js";
-import { SELECTORS } from './constants.js';
+import { SELECTORS, VARIANT_PRICE_RATE } from './constants.js'; // Ensure VARIANT_PRICE_RATE is imported if used here directly, though calculatePrices handles it now.
 
 /**
  * Extracts the brand and product name from the title element and formats them.
@@ -21,7 +20,7 @@ export async function extractTitle(page) {
   try {
     brand = await page.$eval(SELECTORS.PRODUCT.TITLE_BRAND, (el) =>
       el.textContent.trim()
-    ).catch(() => ""); // Use catch to avoid breaking if selector fails
+    ).catch(() => "");
   } catch (error) {
     console.warn("⚠️ Could not extract brand name:", error.message);
   }
@@ -29,7 +28,7 @@ export async function extractTitle(page) {
   try {
     productName = await page.$eval(SELECTORS.PRODUCT.TITLE_NAME, (el) =>
       el.textContent.trim()
-    ).catch(() => ""); // Use catch to avoid breaking if selector fails
+    ).catch(() => "");
   } catch (error) {
     console.warn("⚠️ Could not extract product name:", error.message);
   }
@@ -47,44 +46,21 @@ export async function extractTitle(page) {
 }
 
 /**
- * Extracts the previous price from the price wrapper.
+ * Extracts the "cost per item" from the website, which is identified as the
+ * original/strike-through price based on your provided selector.
  * @param {import('playwright').Page} page
- * @returns {Promise<string>} The full price string from aria-label, or empty string.
+ * @returns {Promise<string>} The raw text of the displayed cost per item (e.g., "$100.00").
  */
-export async function extractPreviousPrice(page) {
+export async function extractDisplayedCostPerItem(page) {
   try {
-    // Wait for the price wrapper to be visible
-    await page.waitForSelector(SELECTORS.PRODUCT.PRICE_WRAPPER, { state: 'visible', timeout: 10000 });
-    const priceWrapper = await page.$(SELECTORS.PRODUCT.PRICE_WRAPPER);
-    if (priceWrapper) {
-      // Prioritize span with aria-label which often contains the full price string including original/sale
-      const priceSpan = await priceWrapper.$('span[aria-label]');
-      if (priceSpan) {
-        const ariaLabel = await priceSpan.getAttribute('aria-label');
-        if (ariaLabel) return ariaLabel.trim();
-      }
-
-      // Fallback: Check for individual price elements within the wrapper if aria-label isn't enough
-      const salePrice = await priceWrapper.$eval(SELECTORS.PRODUCT.SALE_PRICE, el => el.textContent.trim()).catch(() => '');
-      const originalPrice = await priceWrapper.$eval(SELECTORS.PRODUCT.ORIGINAL_PRICE, el => el.textContent.trim()).catch(() => '');
-
-      if (salePrice && originalPrice) {
-          return `${originalPrice} Sale ${salePrice}`;
-      } else if (salePrice) {
-          return salePrice;
-      } else if (originalPrice) {
-          return originalPrice;
-      }
-
-      // If all else fails, try to get the general text content of the price wrapper
-      return await priceWrapper.textContent().then(text => text.trim()).catch(() => '');
-    }
+    await page.waitForSelector(SELECTORS.PRODUCT.ORIGINAL_OR_STRIKE_PRICE, { state: 'visible', timeout: 10000 });
+    const costText = await page.$eval(SELECTORS.PRODUCT.ORIGINAL_OR_STRIKE_PRICE, el => el.textContent.trim());
+    return costText;
   } catch (error) {
-    console.warn("⚠️ Could not extract price:", error.message);
+    console.warn("⚠️ Could not extract displayed cost per item (original/strike price):", error.message);
+    return "";
   }
-  return "";
 }
-
 
 /**
  * Extracts the main product image URL.
@@ -93,6 +69,7 @@ export async function extractPreviousPrice(page) {
  */
 export async function extractMainImage(page) {
   try {
+    // Wait for the picture element or its direct img child
     await page.waitForSelector(SELECTORS.PRODUCT.MAIN_IMAGE, { state: 'visible', timeout: 5000 });
     return await page.$eval(SELECTORS.PRODUCT.MAIN_IMAGE, (img) => img.src);
   } catch (error) {
@@ -108,26 +85,28 @@ export async function extractMainImage(page) {
  */
 export async function extractBreadcrumbs(page) {
   try {
-    // Wait for at least one breadcrumb link to appear
-    await page.waitForSelector(SELECTORS.BREADCRUMBS.LINKS, { state: 'visible', timeout: 5000 });
+    await page.waitForSelector(SELECTORS.BREADCRUMBS.LINKS, { state: 'visible', timeout: 15000 });
+
     const breadcrumbs = await page.$$eval(
       SELECTORS.BREADCRUMBS.LINKS,
-      (anchors) =>
-        anchors
+      (anchors) => {
+        return anchors
           .map((a) => {
-            const svg = a.querySelector('svg');
-            if (svg) {
-              // Remove the SVG element if present for cleaner text
-              const tempDiv = document.createElement('div');
-              tempDiv.appendChild(a.cloneNode(true));
-              tempDiv.querySelector('svg')?.remove();
-              return tempDiv.textContent.trim().replace(/,/g, ';');
+            const tempDiv = document.createElement('div');
+            tempDiv.appendChild(a.cloneNode(true));
+            tempDiv.querySelectorAll('svg, .separator-icon').forEach(el => el.remove());
+
+            let text = tempDiv.textContent.trim();
+            if (text && text.toLowerCase() !== 'home') {
+              return text.replace(/,/g, ';');
             }
-            return a.textContent.trim().replace(/,/g, ';');
+            return null;
           })
-          .filter(Boolean) // Remove any empty strings
-          .join(",")
+          .filter(Boolean)
+          .join(",");
+      }
     );
+    console.log("Extracted breadcrumbs:", breadcrumbs);
     return breadcrumbs;
   } catch (error) {
     console.warn("⚠️ Could not extract breadcrumbs:", error.message);
@@ -144,51 +123,75 @@ export async function extractFullDescription(page) {
   let fullDescriptionHtml = "";
   try {
     // --- Step 1: Click the description/details button if it exists ---
-    const descriptionButton = await page.$(SELECTORS.PRODUCT.DESCRIPTION_BUTTON);
-    if (descriptionButton) {
+    const descriptionButton = await page.locator(SELECTORS.PRODUCT.DESCRIPTION_BUTTON).first();
+    if (descriptionButton && await descriptionButton.isVisible()) {
       console.log("Clicking description/details button...");
       await descriptionButton.click();
-      await page.waitForTimeout(1000); // Give time for content to expand/load
+      await page.waitForTimeout(1000);
+    } else {
+        console.log("Description button not found or not visible, proceeding without click.");
     }
 
-    // --- Step 2: Extract the main product description content ---
+    // --- Step 2: Extract the main product description paragraph ---
     try {
-      await page.waitForSelector(SELECTORS.PRODUCT.DESCRIPTION_CONTENT, { state: 'visible', timeout: 5000 });
-      const mainDescriptionEl = await page.$(SELECTORS.PRODUCT.DESCRIPTION_CONTENT);
+      await page.waitForSelector(SELECTORS.PRODUCT.DESCRIPTION_CONTENT_CONTAINER, { state: 'visible', timeout: 5000 });
+      const mainDescriptionEl = await page.$(SELECTORS.PRODUCT.DESCRIPTION_MAIN_PARAGRAPH);
       if (mainDescriptionEl) {
         fullDescriptionHtml += await mainDescriptionEl.evaluate(el => el.outerHTML);
-        console.log("Extracted main description.");
+        console.log("Extracted main description paragraph.");
+      } else {
+        console.warn("⚠️ Main description paragraph not found within container.");
       }
     } catch (error) {
       console.warn("⚠️ Could not extract main description content:", error.message);
     }
 
-    // --- Step 3: Extract Features section ---
+    // --- Step 3: Extract ul > li.column elements, excluding the last child ---
+    try {
+      const listItems = await page.$$(SELECTORS.PRODUCT.DESCRIPTION_LIST_ITEMS);
+      if (listItems.length > 0) {
+        const itemsToExtract = listItems.slice(0, listItems.length - 1);
+        let listHtml = '<ul>';
+        for (const item of itemsToExtract) {
+          listHtml += await item.evaluate(el => el.outerHTML);
+        }
+        listHtml += '</ul>';
+        fullDescriptionHtml += listHtml;
+        console.log(`Extracted ${itemsToExtract.length} list items (excluding the last one).`);
+      } else {
+        console.log("No specific list items (ul > li.column) found for description.");
+      }
+    } catch (error) {
+      console.warn("⚠️ Could not extract list items:", error.message);
+    }
+
+    // --- Step 4: Extract Features section (if still relevant) ---
     try {
       const featuresSection = await page.$(SELECTORS.PRODUCT.FEATURES_SECTION);
-      if (featuresSection) {
+      if (featuresSection && await featuresSection.isVisible()) {
         const featuresHtml = await featuresSection.evaluate(el => el.outerHTML);
         fullDescriptionHtml += featuresHtml;
         console.log("Extracted features section.");
+      } else {
+        console.log("Features section not found or not visible.");
       }
     } catch (error) {
       console.warn("⚠️ Could not extract features section:", error.message);
     }
 
-    // --- Step 4: Extract Shipping & Returns section ---
+    // --- Step 5: Extract Shipping & Returns section (if still relevant) ---
     try {
       const shippingReturnsSection = await page.$(SELECTORS.PRODUCT.SHIPPING_RETURNS_SECTION);
-      if (shippingReturnsSection) {
+      if (shippingReturnsSection && await shippingReturnsSection.isVisible()) {
         const shippingReturnsHtml = await shippingReturnsSection.evaluate(el => el.outerHTML);
         fullDescriptionHtml += shippingReturnsHtml;
         console.log("Extracted shipping & returns section.");
+      } else {
+        console.log("Shipping & Returns section not found or not visible.");
       }
     } catch (error) {
       console.warn("⚠️ Could not extract shipping & returns section:", error.message);
     }
-
-    // You might want to add more specific selectors for other expandable sections
-    // or iterate through common section headers if they follow a pattern.
 
   } catch (error) {
     console.error("❌ Error in extractFullDescription:", error.message);
@@ -211,8 +214,6 @@ export async function waitForImageChangeCheck({ page, anchorToClick }) {
 
   await anchorToClick?.click();
   console.log("Waiting for image change or variant update...");
-  // Wait for either the image to change or a short timeout if no image change is expected
-  // or if the change is subtle (e.g., only price/stock updates)
   try {
     await page.waitForFunction(
       (prevMainImage, selector) => {
@@ -227,9 +228,8 @@ export async function waitForImageChangeCheck({ page, anchorToClick }) {
     console.log("✅ Image changed.");
   } catch (err) {
     console.warn("⚠️ Image did not change or timed out after variant click:", err.message);
-    // If image doesn't change, still proceed, as other attributes like price/stock might have
   }
-  await page.waitForTimeout(1000); // Add a small buffer for page stability after interaction
+  await page.waitForTimeout(1000);
 }
 
 /**
@@ -246,15 +246,14 @@ export async function extractMacyProductData(page, url, extraTags) {
   try {
     await gotoMacyWithRetries(page, url);
     console.info("✅ Page loaded, waiting for stability...");
-    await page.waitForLoadState('domcontentloaded'); // Ensure basic DOM is ready
-    await page.waitForTimeout(3000); // Additional wait for dynamic content
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(3000);
 
     const handle = formatHandleFromUrl(url);
-    const { brand, productName, title } = await extractTitle(page); // Get formatted title
+    const { brand, productName, title } = await extractTitle(page);
     const descriptionHtml = await extractFullDescription(page);
     const breadcrumbs = await extractBreadcrumbs(page);
 
-    // Combine breadcrumbs and extraTags for Shopify Tags field
     const finalProductTags = [
       ...new Set([
         ...breadcrumbs.split(",").map(tag => tag.trim()),
@@ -264,17 +263,23 @@ export async function extractMacyProductData(page, url, extraTags) {
       .filter(Boolean)
       .join(", ");
 
-    // Determine variant option names
     let option1Name = "";
     let option2Name = "";
 
     const colorOptionNameEl = await page.$(SELECTORS.PRODUCT.COLOR_OPTION_NAME);
     if (colorOptionNameEl) {
       option1Name = (await colorOptionNameEl.textContent()).replace(':', '').trim();
+    } else {
+        console.warn("⚠️ Could not find Color Option Name, defaulting to 'Color'.");
+        option1Name = "Color";
     }
+
     const sizeOptionNameEl = await page.$(SELECTORS.PRODUCT.SIZE_OPTION_NAME);
     if (sizeOptionNameEl) {
       option2Name = (await sizeOptionNameEl.textContent()).replace(':', '').trim();
+    } else {
+        console.warn("⚠️ Could not find Size Option Name, defaulting to 'Size'.");
+        option2Name = "Size";
     }
 
     let colorSwatchLabels = await page.$$(SELECTORS.PRODUCT.COLOR_RADIO_LABELS);
@@ -292,7 +297,7 @@ export async function extractMacyProductData(page, url, extraTags) {
             continue;
         }
 
-        const isColorSelected = await colorLabel.evaluate(el => el.querySelector('input[type="radio"]:checked') !== null);
+        const isColorSelected = await colorLabel.evaluate(el => el.querySelector('input[type="radio"]:checked') !== null || el.classList.contains('selected'));
         if (!isColorSelected) {
           console.log(`Clicking color swatch for index ${i}...`);
           await waitForImageChangeCheck({ page, anchorToClick: colorLabel });
@@ -301,9 +306,9 @@ export async function extractMacyProductData(page, url, extraTags) {
           console.log(`Color swatch for index ${i} already selected.`);
         }
 
-        const colorOptionValue = await colorLabel.evaluate(el => el.querySelector('img')?.alt || el.ariaLabel?.replace('Color: ', '').trim() || el.textContent.trim());
-        if (!option1Name) option1Name = "Color"; // Fallback if name not found
-        const currentOption1Value = colorOptionValue;
+        // Extract the actual color value from the specific display element if available, or fallback to label text
+        let currentOption1Value = await page.$eval(SELECTORS.PRODUCT.SELECTED_COLOR_VALUE_DISPLAY, el => el.textContent.trim())
+                                    .catch(() => colorLabel.evaluate(el => el.querySelector('img')?.alt || el.ariaLabel?.replace('Color: ', '').trim() || el.textContent.trim()));
 
         const mainImage = await extractMainImage(page);
 
@@ -321,28 +326,28 @@ export async function extractMacyProductData(page, url, extraTags) {
                 continue;
             }
 
-            const isSizeSelected = await sizeLabel.evaluate(el => el.querySelector('input[type="radio"]:checked') !== null);
+            const isSizeSelected = await sizeLabel.evaluate(el => el.querySelector('input[type="radio"]:checked') !== null || el.classList.contains('selected'));
             if (!isSizeSelected) {
               console.log(`Clicking size chip for index ${j} for color "${currentOption1Value}"...`);
               await sizeLabel.click();
-              await page.waitForTimeout(1000); // Small delay for price/stock to update
+              await page.waitForTimeout(1000);
             } else {
               console.log(`Size chip for index ${j} for color "${currentOption1Value}" already selected.`);
             }
 
-            const sizeOptionValue = await sizeLabel.evaluate(el => el.textContent.trim());
-            if (!option2Name) option2Name = "Size"; // Fallback if name not found
-            const currentOption2Value = sizeOptionValue;
+            // Extract the actual size value from the specific display element if available, or fallback to label text
+            let currentOption2Value = await page.$eval(SELECTORS.PRODUCT.SELECTED_SIZE_VALUE_DISPLAY, el => el.textContent.trim())
+                                        .catch(() => sizeLabel.evaluate(el => el.textContent.trim()));
 
-            const previousPriceText = await extractPreviousPrice(page);
-            const { costPerItem, variantPrice, compareAtPrice } = calculatePrices(previousPriceText);
+            const displayedCostPerItemText = await extractDisplayedCostPerItem(page);
+            const { costPerItem, variantPrice, compareAtPrice } = calculatePrices(displayedCostPerItemText);
 
             allShopifyRows.push({
               "Handle": handle,
               "Title": allShopifyRows.length === 0 ? title : "",
               "Body (HTML)": allShopifyRows.length === 0 ? descriptionHtml : "",
               "Vendor": "Macy's",
-              "Type": "Footwear", // Example type, adjust as needed
+              "Type": "Footwear",
               "Tags": allShopifyRows.length === 0 ? finalProductTags : "",
               "Published": "TRUE",
               "Option1 Name": option1Name,
@@ -355,7 +360,7 @@ export async function extractMacyProductData(page, url, extraTags) {
               "Variant Grams": "",
               "Variant Price": variantPrice,
               "Variant Compare At Price": compareAtPrice,
-              "Variant Cost": costPerItem, // This is your internal cost
+              "Variant Cost": costPerItem,
               "Variant Taggable": "",
               "Variant Taxable": "TRUE",
               "Variant Barcode": "",
@@ -387,8 +392,8 @@ export async function extractMacyProductData(page, url, extraTags) {
             });
           }
         } else { // No size variants, only color
-          const previousPriceText = await extractPreviousPrice(page);
-          const { costPerItem, variantPrice, compareAtPrice } = calculatePrices(previousPriceText);
+          const displayedCostPerItemText = await extractDisplayedCostPerItem(page);
+          const { costPerItem, variantPrice, compareAtPrice } = calculatePrices(displayedCostPerItemText);
 
           allShopifyRows.push({
             "Handle": handle,
@@ -442,7 +447,7 @@ export async function extractMacyProductData(page, url, extraTags) {
       }
     } else if (sizeChipLabels.length > 0) { // Product has only sizes (master variant)
       console.log(`🔎 Found ${sizeChipLabels.length} sizes (no colors).`);
-      if (!option1Name) option1Name = "Size"; // Fallback if name not found
+      if (!option1Name) option1Name = "Size";
 
       for (let i = 0; i < sizeChipLabels.length; i++) {
         const currentSizeChipLabels = await page.$$(SELECTORS.PRODUCT.SIZE_RADIO_LABELS);
@@ -453,19 +458,22 @@ export async function extractMacyProductData(page, url, extraTags) {
             continue;
         }
 
-        const isSizeSelected = await sizeLabel.evaluate(el => el.querySelector('input[type="radio"]:checked') !== null);
+        const isSizeSelected = await sizeLabel.evaluate(el => el.querySelector('input[type="radio"]:checked') !== null || el.classList.contains('selected'));
         if (!isSizeSelected) {
           console.log(`Clicking size chip for index ${i}...`);
           await sizeLabel.click();
-          await page.waitForTimeout(1000); // Small delay for price/stock to update
+          await page.waitForTimeout(1000);
         } else {
           console.log(`Size chip for index ${i} already selected.`);
         }
 
-        const currentOption1Value = await sizeLabel.evaluate(el => el.textContent.trim());
+        // Extract the actual size value from the specific display element if available, or fallback to label text
+        let currentOption1Value = await page.$eval(SELECTORS.PRODUCT.SELECTED_SIZE_VALUE_DISPLAY, el => el.textContent.trim())
+                                    .catch(() => sizeLabel.evaluate(el => el.textContent.trim()));
+
         const mainImage = await extractMainImage(page);
-        const previousPriceText = await extractPreviousPrice(page);
-        const { costPerItem, variantPrice, compareAtPrice } = calculatePrices(previousPriceText);
+        const displayedCostPerItemText = await extractDisplayedCostPerItem(page);
+        const { costPerItem, variantPrice, compareAtPrice } = calculatePrices(displayedCostPerItemText);
 
         allShopifyRows.push({
           "Handle": handle,
@@ -519,8 +527,8 @@ export async function extractMacyProductData(page, url, extraTags) {
     } else { // No variants
       console.log("🔎 No variants found for this product.");
       const mainImage = await extractMainImage(page);
-      const previousPriceText = await extractPreviousPrice(page);
-      const { costPerItem, variantPrice, compareAtPrice } = calculatePrices(previousPriceText);
+      const displayedCostPerItemText = await extractDisplayedCostPerItem(page);
+      const { costPerItem, variantPrice, compareAtPrice } = calculatePrices(displayedCostPerItemText);
 
       allShopifyRows.push({
         "Handle": handle,
@@ -530,7 +538,7 @@ export async function extractMacyProductData(page, url, extraTags) {
         "Type": "Footwear",
         "Tags": finalProductTags,
         "Published": "TRUE",
-        "Option1 Name": "", // No variants
+        "Option1 Name": "",
         "Option1 Value": "",
         "Option2 Name": "",
         "Option2 Value": "",
