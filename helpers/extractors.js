@@ -340,7 +340,7 @@ export async function extractMacyProductData(page, url, extraTags) {
                                         .catch(() => sizeLabel.evaluate(el => el.textContent.trim()));
 
             const displayedCostPerItemText = await extractDisplayedCostPerItem(page);
-            const { costPerItem, variantPrice, compareAtPrice } = calculatePrices(displayedCostPerItemText);
+            const { costPerItem, variantPrice } = calculatePrices(displayedCostPerItemText);
 
             allShopifyRows.push({
               "Handle": handle,
@@ -359,8 +359,8 @@ export async function extractMacyProductData(page, url, extraTags) {
               "Variant SKU": extractSKU(page.url()),
               "Variant Grams": "",
               "Variant Price": variantPrice,
-              "Variant Compare At Price": compareAtPrice,
-              "Variant Cost": costPerItem,
+              //"Variant Compare At Price": compareAtPrice,
+              "Cost per Item": costPerItem,
               "Variant Taggable": "",
               "Variant Taxable": "TRUE",
               "Variant Barcode": "",
@@ -387,13 +387,13 @@ export async function extractMacyProductData(page, url, extraTags) {
               "Variant Tax Code": "",
               "Cost per item": costPerItem,
               "Price": variantPrice,
-              "Compare At Price": compareAtPrice,
+              //"Compare At Price": compareAtPrice,
               "original_product_url": url,
             });
           }
         } else { // No size variants, only color
           const displayedCostPerItemText = await extractDisplayedCostPerItem(page);
-          const { costPerItem, variantPrice, compareAtPrice } = calculatePrices(displayedCostPerItemText);
+          const { costPerItem, variantPrice } = calculatePrices(displayedCostPerItemText);
 
           allShopifyRows.push({
             "Handle": handle,
@@ -412,7 +412,7 @@ export async function extractMacyProductData(page, url, extraTags) {
             "Variant SKU": extractSKU(page.url()),
             "Variant Grams": "",
             "Variant Price": variantPrice,
-            "Variant Compare At Price": compareAtPrice,
+           // "Variant Compare At Price": compareAtPrice,
             "Variant Cost": costPerItem,
             "Variant Taggable": "",
             "Variant Taxable": "TRUE",
@@ -440,7 +440,7 @@ export async function extractMacyProductData(page, url, extraTags) {
             "Variant Tax Code": "",
             "Cost per item": costPerItem,
             "Price": variantPrice,
-            "Compare At Price": compareAtPrice,
+            //"Compare At Price": compareAtPrice,
             "original_product_url": url,
           });
         }
@@ -473,7 +473,7 @@ export async function extractMacyProductData(page, url, extraTags) {
 
         const mainImage = await extractMainImage(page);
         const displayedCostPerItemText = await extractDisplayedCostPerItem(page);
-        const { costPerItem, variantPrice, compareAtPrice } = calculatePrices(displayedCostPerItemText);
+        const { costPerItem, variantPrice} = calculatePrices(displayedCostPerItemText);
 
         allShopifyRows.push({
           "Handle": handle,
@@ -520,7 +520,7 @@ export async function extractMacyProductData(page, url, extraTags) {
           "Variant Tax Code": "",
           "Cost per item": costPerItem,
           "Price": variantPrice,
-          "Compare At Price": compareAtPrice,
+          //"Compare At Price": compareAtPrice,
           "original_product_url": url,
         });
       }
@@ -528,7 +528,7 @@ export async function extractMacyProductData(page, url, extraTags) {
       console.log("🔎 No variants found for this product.");
       const mainImage = await extractMainImage(page);
       const displayedCostPerItemText = await extractDisplayedCostPerItem(page);
-      const { costPerItem, variantPrice, compareAtPrice } = calculatePrices(displayedCostPerItemText);
+      const { costPerItem, variantPrice } = calculatePrices(displayedCostPerItemText);
 
       allShopifyRows.push({
         "Handle": handle,
@@ -547,7 +547,7 @@ export async function extractMacyProductData(page, url, extraTags) {
         "Variant SKU": extractSKU(page.url()),
         "Variant Grams": "",
         "Variant Price": variantPrice,
-        "Variant Compare At Price": compareAtPrice,
+        //"Variant Compare At Price": compareAtPrice,
         "Variant Cost": costPerItem,
         "Variant Taggable": "",
         "Variant Taxable": "TRUE",
@@ -575,7 +575,7 @@ export async function extractMacyProductData(page, url, extraTags) {
         "Variant Tax Code": "",
         "Cost per item": costPerItem,
         "Price": variantPrice,
-        "Compare At Price": compareAtPrice,
+        //"Compare At Price": compareAtPrice,
         "original_product_url": url,
       });
     }

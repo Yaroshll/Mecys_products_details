@@ -2,11 +2,11 @@
 export const SELECTORS = {
   PRODUCT: {
     // Title
-    TITLE_BRAND: 'h1.pdp-title span.brand',
-    TITLE_NAME: 'h1.pdp-title span.product-name',
+    TITLE_BRAND: "h1.product-title a", // Brand name from h1
+    TITLE_NAME: "h1.product-title span", // Product name from h1
 
     // Image - UPDATED
-    MAIN_IMAGE: 'picture img', // Targets img tag within a picture tag
+    MAIN_IMAGE: 'img.picture-image', // Targets img tag within a picture tag
 
     // Price - UPDATED for "Cost per item" (which seems to be the original strike-through price)
     // The user specified 'class="body-regular price-strike"' for "cost per item"
