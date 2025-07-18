@@ -98,7 +98,7 @@ export async function extractBreadcrumbs(page) {
 
             let text = tempDiv.textContent.trim();
             if (text && text.toLowerCase() !== 'home') {
-              return text.replace(/,/g, ';');
+              return text.replace(/,/g, ',');
             }
             return null;
           })
