@@ -1,40 +1,32 @@
 // helpers/extractors.js
 import { SELECTORS, VARIANT_PRICE_RATE } from './constants.js';
 
-// --- NEW: Helper function for URL formatting ---
+// --- Helper function for URL formatting ---
 export function formatHandleFromUrl(url) {
   try {
     const urlObj = new URL(url);
-    const pathnameParts = urlObj.pathname.split('/').filter(Boolean); // Split by / and remove empty strings
-    // Take the last part of the pathname (e.g., "jessica-simpson-olivine-bow-high-heel-stiletto-dress-sandals")
+    const pathnameParts = urlObj.pathname.split('/').filter(Boolean);
     let handle = pathnameParts[pathnameParts.length - 1];
-
-    // Remove common URL parameters that might be appended after the main path
     handle = handle.split('?')[0].split('#')[0];
-
-    // Replace non-alphanumeric characters (except hyphens) with hyphens,
-    // convert to lowercase, and trim extra hyphens.
     handle = handle.replace(/[^a-z0-9-]/gi, '-').toLowerCase();
-    handle = handle.replace(/--+/g, '-').replace(/^-|-$/g, ''); // Replace multiple hyphens with single, remove leading/trailing hyphens
-
+    handle = handle.replace(/--+/g, '-').replace(/^-|-$/g, '');
     return handle;
   } catch (e) {
     console.warn(`⚠️ Could not format handle from URL ${url}: ${e.message}`);
-    return null; // Return null or a default if URL is invalid
+    return null;
   }
 }
-// --- END NEW ---
 
 // Helper function for navigation with retries
 export async function gotoMacyWithRetries(page, url, maxRetries = 3) {
   for (let i = 0; i < maxRetries; i++) {
     try {
-      await page.goto(url, { waitUntil: 'load', timeout: 60000 }); // Increased timeout for goto
-      return; // If successful, exit
+      await page.goto(url, { waitUntil: 'load', timeout: 60000 });
+      return;
     } catch (error) {
       console.warn(`Attempt ${i + 1} failed to navigate to ${url}: ${error.message}`);
-      if (i === maxRetries - 1) throw error; // Re-throw if all retries fail
-      await page.waitForTimeout(2000); // Wait before retrying
+      if (i === maxRetries - 1) throw error;
+      await page.waitForTimeout(2000);
     }
   }
 }
@@ -51,7 +43,7 @@ export function calculatePrices(costPerItemText) {
   let costPerItem = costMatch ? parseFloat(costMatch[1].replace(/,/g, '')) : 0;
 
   let variantPrice = parseFloat((costPerItem * VARIANT_PRICE_RATE).toFixed(2));
-  let compareAtPrice = parseFloat((costPerItem * (VARIANT_PRICE_RATE * 1.2)).toFixed(2)); // Example: 20% higher than variantPrice
+  let compareAtPrice = parseFloat((costPerItem * (VARIANT_PRICE_RATE * 1.2)).toFixed(2));
 
   return { costPerItem, variantPrice, compareAtPrice };
 }
@@ -70,7 +62,7 @@ export async function extractMainImage(page) {
   if (mainImageElement) {
     const src = await mainImageElement.getAttribute('src');
     const dataSrc = await mainImageElement.getAttribute('data-src');
-    return dataSrc || src; // Prefer data-src if available
+    return dataSrc || src;
   }
   return null;
 }
@@ -82,7 +74,9 @@ export async function extractFullDescription(page) {
     // Click the "Description & Features" button if it exists
     const descriptionButton = await page.$(SELECTORS.PRODUCT.DESCRIPTION_BUTTON);
     if (descriptionButton) {
-      await descriptionButton.click();
+      // Use force: true for the click action on the description button
+      await descriptionButton.click({ force: true });
+      // Use state: 'visible' to wait for the drawer to appear
       await page.waitForSelector(SELECTORS.PRODUCT.DESCRIPTION_CONTENT_CONTAINER, { state: 'visible', timeout: 5000 });
       await page.waitForTimeout(500); // Short delay for content to render after expanding
     }
@@ -105,7 +99,7 @@ export async function extractFullDescription(page) {
 
     // Fallback: If specific elements not found, try to get general description area content
     if (!descriptionHtml) {
-        const fallbackDescContainer = await page.$('div.details-accordion-body'); // Common alternative
+        const fallbackDescContainer = await page.$('div.details-accordion-body');
         if (fallbackDescContainer) {
             descriptionHtml = await fallbackDescContainer.innerHTML();
         }
@@ -122,7 +116,6 @@ export async function extractBreadcrumbs(page) {
   const breadcrumbLinks = await page.$$(SELECTORS.BREADCRUMBS.LINKS);
   const breadcrumbs = [];
   for (const link of breadcrumbLinks) {
-    // Extract text, remove any SVG elements (common for separators)
     const text = await link.evaluate(el => {
       const clone = el.cloneNode(true);
       clone.querySelectorAll('svg').forEach(svg => svg.remove());
@@ -139,12 +132,10 @@ export async function extractBreadcrumbs(page) {
 export async function extractDisplayedCostPerItem(page) {
   let priceText = null;
   try {
-    // Prioritize current/sale price
     const currentPriceElement = await page.$(SELECTORS.PRODUCT.CURRENT_PRICE);
     if (currentPriceElement) {
       priceText = await currentPriceElement.textContent();
     } else {
-      // Fallback to original/strike price if current not found (though less ideal for 'current' cost)
       const originalPriceElement = await page.$(SELECTORS.PRODUCT.ORIGINAL_OR_STRIKE_PRICE);
       if (originalPriceElement) {
         priceText = await originalPriceElement.textContent();
@@ -153,24 +144,17 @@ export async function extractDisplayedCostPerItem(page) {
   } catch (error) {
     console.warn(`⚠️ Could not extract price: ${error.message}`);
   }
-  return priceText ? priceText.trim() : "$0.00"; // Return a default if no price found
+  return priceText ? priceText.trim() : "$0.00";
 }
 
 
 // Helper function to wait for image to change after clicking a variant
-// (This is a simplified version; for robust image change detection,
-// you might need to compare src attributes before/after a delay)
 export async function waitForImageChangeCheck({ page, anchorToClick }) {
-  // Get current main image src
   const initialImageSrc = await page.$eval(SELECTORS.PRODUCT.MAIN_IMAGE, el => el.getAttribute('src') || el.getAttribute('data-src')).catch(() => null);
 
-  // Click the anchor
-  await anchorToClick.click({ timeout: 10000 }); // Added timeout to click
-  await page.waitForTimeout(1000); // Wait for potential network/render update
-
-  // You can add more sophisticated image change detection here if needed,
-  // e.g., loop and check if src changed, or wait for specific network requests.
-  // For now, a simple wait after click is often sufficient.
+  // Use force: true for the click action
+  await anchorToClick.click({ force: true, timeout: 10000 });
+  await page.waitForTimeout(1000);
 }
 
 
@@ -188,7 +172,6 @@ export async function extractMacyProductData(page, url, extraTags) {
   try {
     await gotoMacyWithRetries(page, url);
     console.info("✅ Page loaded, waiting for stability...");
-    // Increased initial wait time after load state for heavy JS sites
     await page.waitForLoadState('domcontentloaded');
     await page.waitForTimeout(5000); // Increased from 3000ms
 
@@ -197,20 +180,23 @@ export async function extractMacyProductData(page, url, extraTags) {
       console.log("Attempting to hide potential intercepting elements...");
       await page.addStyleTag({
         content: `
-          #global-header, .slideout-header, [data-auto="product-details-section-shipping"], .sticky-bottom-bar, #teleported, /* common Macy's overlays/fixed elements */
-          .modal-overlay, .modal-dialog, /* generic popup/modal selectors */
-          .loyalty-banner, .toast-notification, /* other banners/notifications if they appear */
-          /* Macy's specific elements that often overlay or interact */
+          /* Aggressive hiding for common overlays and sticky elements */
+          #global-header, .slideout-header, [data-auto="product-details-section-shipping"], .sticky-bottom-bar, #teleported,
+          .modal-overlay, .modal-dialog,
+          .loyalty-banner, .toast-notification,
           #modal-root, [role="dialog"], .ReactModal__Overlay, .ReactModal__Content,
-          .enhanced-offer-banner, .interstitial-modal, .cookie-banner, .footer-container
-          {
+          .enhanced-offer-banner, .interstitial-modal, .cookie-banner, .footer-container,
+          /* Specific Macy's elements that often cause issues */
+          .full-width-overlay, .overlay-backdrop, .atc-flyout {
             visibility: hidden !important;
             pointer-events: none !important;
             height: 0 !important;
             overflow: hidden !important;
-            opacity: 0 !important; /* Ensure no visual presence */
+            opacity: 0 !important;
             display: none !important; /* Strongest hide option */
           }
+          /* Ensure the main content and variants are interactable */
+          body { overflow: auto !important; }
         `
       });
       console.log("Potential intercepting elements hidden.");
@@ -237,8 +223,6 @@ export async function extractMacyProductData(page, url, extraTags) {
     let option1Name = "";
     let option2Name = "";
 
-    // Get option names. Macy's usually shows these above the swatches.
-    // Added more robust selectors for option names
     const optionNameElements = await page.$$('legend.form-label, span.updated-label.label, [data-auto="color-picker-label"], [data-auto="size-picker-label"]');
     for (const el of optionNameElements) {
         const text = await el.textContent();
@@ -248,8 +232,8 @@ export async function extractMacyProductData(page, url, extraTags) {
             option2Name = text.replace(':', '').trim();
         }
     }
-    if (!option1Name) option1Name = "Color"; // Fallback
-    if (!option2Name) option2Name = "Size"; // Fallback
+    if (!option1Name) option1Name = "Color";
+    if (!option2Name) option2Name = "Size";
 
 
     let colorSwatchLabels = await page.$$(SELECTORS.PRODUCT.COLOR_RADIO_LABELS);
@@ -271,8 +255,9 @@ export async function extractMacyProductData(page, url, extraTags) {
 
         if (!isColorSelected && !isColorDisabled) {
           console.log(`Clicking color swatch for index ${i}...`);
+          // Use force: true for color clicks
           await waitForImageChangeCheck({ page, anchorToClick: colorLabel });
-          await page.waitForTimeout(1500); // Give time for price/stock/size options to update
+          await page.waitForTimeout(1500);
         } else {
           console.log(`Color swatch for index ${i} already selected or disabled.`);
           if (isColorDisabled) continue;
@@ -280,7 +265,6 @@ export async function extractMacyProductData(page, url, extraTags) {
 
         let currentOption1Value = await page.$eval(SELECTORS.PRODUCT.SELECTED_COLOR_VALUE_DISPLAY, el => el.textContent.trim())
                                     .catch(async () => {
-                                        // Fallback if the specific display element isn't immediately available
                                         const altText = await colorLabel.$eval('img', img => img.alt).catch(() => '');
                                         if (altText) return altText;
                                         return colorLabel.textContent().catch(() => 'Unknown Color');
@@ -290,7 +274,6 @@ export async function extractMacyProductData(page, url, extraTags) {
 
         const mainImage = await extractMainImage(page);
 
-        // Re-fetch size labels *after* color change as they often depend on color selection
         sizeChipLabels = await page.$$(SELECTORS.PRODUCT.SIZE_RADIO_LABELS);
 
         if (sizeChipLabels.length > 0) {
@@ -309,8 +292,9 @@ export async function extractMacyProductData(page, url, extraTags) {
 
             if (!isSizeSelected && !isSizeDisabled) {
               console.log(`Clicking size chip for index ${j} for color "${currentOption1Value}"...`);
-              await sizeLabel.click({ timeout: 10000 }); // Retrying click with default timeout increased
-              await page.waitForTimeout(1000); // Small delay for price/stock to update
+              // Use force: true for size clicks
+              await sizeLabel.click({ force: true, timeout: 10000 });
+              await page.waitForTimeout(1000);
             } else {
               console.log(`Size chip for index ${j} for color "${currentOption1Value}" already selected or disabled.`);
               if (isSizeDisabled) continue;
@@ -318,7 +302,6 @@ export async function extractMacyProductData(page, url, extraTags) {
 
             let currentOption2Value = await page.$eval(SELECTORS.PRODUCT.SELECTED_SIZE_VALUE_DISPLAY, el => el.textContent.trim())
                                         .catch(async () => {
-                                            // Fallback if the specific display element isn't immediately available
                                             return sizeLabel.textContent().catch(() => 'Unknown Size');
                                         });
             console.log(`Current size selected: ${currentOption2Value}`);
@@ -433,7 +416,6 @@ export async function extractMacyProductData(page, url, extraTags) {
       }
     } else if (sizeChipLabels.length > 0) { // Product has only sizes (master variant)
       console.log(`🔎 Found ${sizeChipLabels.length} sizes (no colors).`);
-      // option1Name should already be "Size" from initial detection, or will fallback.
 
       for (let i = 0; i < sizeChipLabels.length; i++) {
         const currentSizeChipLabels = await page.$$(SELECTORS.PRODUCT.SIZE_RADIO_LABELS);
@@ -449,7 +431,8 @@ export async function extractMacyProductData(page, url, extraTags) {
 
         if (!isSizeSelected && !isSizeDisabled) {
           console.log(`Clicking size chip for index ${i}...`);
-          await sizeLabel.click({ timeout: 10000 }); // Retrying click with default timeout increased
+          // Use force: true for size clicks
+          await sizeLabel.click({ force: true, timeout: 10000 });
           await page.waitForTimeout(1000);
         } else {
           console.log(`Size chip for index ${i} already selected or disabled.`);
