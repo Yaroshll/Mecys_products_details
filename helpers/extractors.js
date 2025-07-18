@@ -108,7 +108,6 @@ export async function extractMainImage(page) {
     await page.waitForSelector(SELECTORS.PRODUCT.MAIN_IMAGE, { state: 'visible', timeout: 5000 });
     // Prefer data-src attribute if available (common for lazy-loaded images), otherwise fall back to src
     const imageUrl = await page.$eval(SELECTORS.PRODUCT.MAIN_IMAGE, el => el.dataset.src || el.src || '');
-    console.log(`Extracted Main Image URL: ${imageUrl}`);
     return imageUrl;
   } catch (error) {
     console.warn("⚠️ Could not extract main image:", error.message);
@@ -295,6 +294,55 @@ export async function waitForImageChangeCheck({ page, anchorToClick }) {
 }
 
 /**
+ * Extracts the value of the currently selected color.
+ * Prioritizes a dedicated display element, then image alt, then aria-label, then text content of the swatch.
+ * @param {import('playwright').Page} page - The Playwright page object.
+ * @returns {Promise<string>} The value of the selected color.
+ */
+async function getSelectedColorValue(page) {
+    try {
+        // Try to get from the dedicated display element first (most reliable)
+        return await page.$eval(SELECTORS.PRODUCT.SELECTED_COLOR_VALUE_DISPLAY, el => el.textContent.trim());
+    } catch (e) {
+        // Fallback: Try to find the currently selected color swatch and extract its value
+        const selectedSwatch = await page.$(
+            `${SELECTORS.PRODUCT.COLOR_RADIO_LABELS}[aria-checked="true"], ${SELECTORS.PRODUCT.COLOR_RADIO_LABELS}.selected, ${SELECTORS.PRODUCT.COLOR_RADIO_LABELS}.color-swatch-selected`
+        );
+        if (selectedSwatch) {
+            const imgAlt = await selectedSwatch.$eval('img', img => img.alt).catch(() => '');
+            if (imgAlt) return imgAlt.replace('Color: ', '').trim();
+            const ariaLabel = await selectedSwatch.getAttribute('aria-label');
+            if (ariaLabel) return ariaLabel.replace('Color: ', '').trim();
+            return (await selectedSwatch.textContent()).trim();
+        }
+    }
+    return 'Unknown Color';
+}
+
+/**
+ * Extracts the value of the currently selected size.
+ * Prioritizes a dedicated display element, then text content of the chip.
+ * @param {import('playwright').Page} page - The Playwright page object.
+ * @returns {Promise<string>} The value of the selected size.
+ */
+async function getSelectedSizeValue(page) {
+    try {
+        // Try to get from the dedicated display element first (most reliable)
+        return await page.$eval(SELECTORS.PRODUCT.SELECTED_SIZE_VALUE_DISPLAY, el => el.textContent.trim());
+    } catch (e) {
+        // Fallback: Try to find the currently selected size chip and extract its value
+        const selectedChip = await page.$(
+            `${SELECTORS.PRODUCT.SIZE_RADIO_LABELS}[aria-checked="true"], ${SELECTORS.PRODUCT.SIZE_RADIO_LABELS}.selected, ${SELECTORS.PRODUCT.SIZE_RADIO_LABELS}.selection-tile-selected`
+        );
+        if (selectedChip) {
+            return (await selectedChip.textContent()).trim();
+        }
+    }
+    return 'Unknown Size';
+}
+
+
+/**
  * Extracts all product data from a Macy's product page, handling variants (colors and sizes).
  * Iterates through all available variants and creates Shopify-compatible rows.
  * @param {import('playwright').Page} page - The Playwright page object.
@@ -312,13 +360,34 @@ export async function extractMacyProductData(page, url, extraTags) {
     await page.waitForTimeout(5000); // Initial wait for JavaScript to execute and page to render
 
     // --- CRITICAL: Inject CSS to aggressively hide common overlays and fixed elements ---
-    // These elements often block clicks or obscure content, leading to "element not interactable" errors.
     try {
       console.log("Injecting CSS to hide potential intercepting elements...");
       await page.addStyleTag({
         content: `
+          /* General aggressive hiding for common overlays, modals, and sticky banners */
+          .modal-overlay, .modal-dialog, #modal-root, [role="dialog"], .ReactModal__Overlay, .ReactModal__Content,
+          .loyalty-banner, .toast-notification, .cookie-banner, .interstitial-modal, .marketing-modal-wrapper,
+          /* Macy's specific overlays/sticky elements */
+          .full-width-overlay, .overlay-backdrop, .atc-flyout,
+          #global-header, .slideout-header, [data-auto="product-details-section-shipping"], .sticky-bottom-bar,
+          .enhanced-offer-banner, .footer-container, [data-auto="added-to-bag-modal"],
+          /* Ensure the body is scrollable if an overlay prevents it */
+          body.modal-open, html.no-scroll { overflow: auto !important; }
 
-                   }
+          /* Apply strong hiding properties */
+          .modal-overlay, .modal-dialog, #modal-root, [role="dialog"], .ReactModal__Overlay, .ReactModal__Content,
+          .loyalty-banner, .toast-notification, .cookie-banner, .interstitial-modal, .marketing-modal-wrapper,
+          .full-width-overlay, .overlay-backdrop, .atc-flyout,
+          #global-header, .slideout-header, [data-auto="product-details-section-shipping"], .sticky-bottom-bar,
+          .enhanced-offer-banner, .footer-container, [data-auto="added-to-bag-modal"] {
+            visibility: hidden !important;
+            pointer-events: none !important; /* Prevents interaction */
+            height: 0 !important; /* Collapse the element */
+            width: 0 !important;
+            overflow: hidden !important; /* Hide any content overflow */
+            opacity: 0 !important; /* Make it completely transparent */
+            display: none !important; /* Remove from flow to prevent layout shifts */
+          }
         `
       });
       console.log("✅ CSS injected to hide potential intercepting elements.");
@@ -336,16 +405,15 @@ export async function extractMacyProductData(page, url, extraTags) {
     // Combine and unique product tags
     const finalProductTags = [
       ...new Set([
-        ...breadcrumbs.split(" > ").map(tag => tag.trim()).filter(Boolean), // Split by " > ", trim, and filter empty
-        ...(extraTags ? extraTags.split(",").map(tag => tag.trim()).filter(Boolean) : []), // Split by comma, trim, filter empty
+        ...breadcrumbs.split(" > ").map(tag => tag.trim()).filter(Boolean),
+        ...(extraTags ? extraTags.split(",").map(tag => tag.trim()).filter(Boolean) : []),
       ]),
-    ].join(", "); // Join tags with a comma for Shopify
+    ].join(", ");
 
     let option1Name = "";
     let option2Name = "";
 
     // Dynamically determine option names (e.g., "Color", "Size") from the page
-    // Look for common labels or legends associated with variant selectors
     const optionNameElements = await page.$$('legend.form-label, span.updated-label.label, [data-auto*="-picker-label"], .variant-selector__label, .product-attribute-label');
     for (const el of optionNameElements) {
         const text = (await el.textContent())?.replace(':', '').trim();
@@ -357,127 +425,120 @@ export async function extractMacyProductData(page, url, extraTags) {
             }
         }
     }
-    // Fallback names if not found
     if (!option1Name) option1Name = "Color";
     if (!option2Name) option2Name = "Size";
     console.log(`Determined Option Names: Option1: '${option1Name}', Option2: '${option2Name}'`);
 
     // --- Start Variant Handling ---
-    let initialColorSwatchLabels = await page.$$(SELECTORS.PRODUCT.COLOR_RADIO_LABELS);
-    let initialSizeChipLabels = await page.$$(SELECTORS.PRODUCT.SIZE_RADIO_LABELS);
+    let colorSwatchLabels = await page.$$(SELECTORS.PRODUCT.COLOR_RADIO_LABELS);
+    let sizeChipLabels = await page.$$(SELECTORS.PRODUCT.SIZE_RADIO_LABELS);
 
-    if (initialColorSwatchLabels.length > 0) {
-      console.log(`--- Processing ${initialColorSwatchLabels.length} color variants ---`);
+    if (colorSwatchLabels.length > 0) {
+      console.log(`--- Found ${colorSwatchLabels.length} color variants ---`);
 
-      for (let i = 0; i < initialColorSwatchLabels.length; i++) {
-        // !!! CRITICAL: Re-fetch color elements inside the loop !!!
-        // This ensures you are interacting with the current DOM elements, not stale ones.
-        const currentColorSwatchLabels = await page.$$(SELECTORS.PRODUCT.COLOR_RADIO_LABELS);
-        const colorLabel = currentColorSwatchLabels[i];
+      // Store initial state of all color swatches to iterate reliably
+      const colorsToProcess = [];
+      for (const label of colorSwatchLabels) {
+          const value = await label.evaluate(el => el.querySelector('img')?.alt || el.ariaLabel || el.textContent || '');
+          const isDisabled = await label.evaluate(el => el.getAttribute('aria-disabled') === 'true' || el.classList.contains('disabled') || el.classList.contains('unavailable'));
+          // Only add if not explicitly empty or just whitespace after cleanup
+          if (value.trim() && !isDisabled) {
+              colorsToProcess.push({ element: label, value: value.replace('Color: ', '').trim() });
+          } else if (isDisabled) {
+              console.log(`Skipping disabled color: ${value.trim() || 'N/A'}`);
+          }
+      }
+      
+      console.log(`Will process ${colorsToProcess.length} available colors.`);
 
-        if (!colorLabel) {
-            console.warn(`Color label at index ${i} was not found on re-fetch, skipping.`);
+      for (let i = 0; i < colorsToProcess.length; i++) {
+        // Re-fetch the specific color element using its value or a more robust locator
+        const targetColorValue = colorsToProcess[i].value;
+        const colorLabelToClick = await page.locator(`
+            ${SELECTORS.PRODUCT.COLOR_RADIO_LABELS}[aria-label*="${targetColorValue}" i],
+            ${SELECTORS.PRODUCT.COLOR_RADIO_LABELS} img[alt*="${targetColorValue}" i] >> xpath=ancestor::label,
+            ${SELECTORS.PRODUCT.COLOR_RADIO_LABELS}:has-text("${targetColorValue}" i)
+        `).first();
+
+        if (!colorLabelToClick || !(await colorLabelToClick.isVisible())) {
+            console.warn(`Could not find clickable element for color: ${targetColorValue}, skipping.`);
             continue;
         }
 
-        // Check if the color option is currently selected or disabled
-        const isColorSelected = await colorLabel.evaluate(el =>
-          el.classList.contains('selected') || // Common selected class
-          el.classList.contains('color-swatch-selected') || // Macy's specific selected class
-          el.querySelector('input[type="radio"]:checked') !== null || // Check if its radio button is checked
-          el.getAttribute('aria-checked') === 'true' // ARIA accessibility attribute
+        const isColorSelected = await colorLabelToClick.evaluate(el =>
+          el.classList.contains('selected') || el.classList.contains('color-swatch-selected') || el.querySelector('input[type="radio"]:checked') !== null || el.getAttribute('aria-checked') === 'true'
         );
-        const isColorDisabled = await colorLabel.evaluate(el =>
-          el.getAttribute('aria-disabled') === 'true' || // ARIA disabled attribute
-          el.classList.contains('disabled') || // Common disabled class
-          el.classList.contains('unavailable') // Macy's specific unavailable class
-        );
-
-        if (isColorDisabled) {
-          console.log(`Skipping disabled color swatch at index ${i}: ${await colorLabel.textContent().catch(() => 'N/A')}`);
-          continue; // Skip to the next iteration if the color is disabled
-        }
 
         if (!isColorSelected) {
-          console.log(`Clicking color swatch ${i + 1}/${initialColorSwatchLabels.length}.`);
-          await waitForImageChangeCheck({ page, anchorToClick: colorLabel });
-          await page.waitForTimeout(1500); // Give time for price/stock/size options to update
+          console.log(`Clicking color swatch for: '${targetColorValue}' (${i + 1}/${colorsToProcess.length}).`);
+          await waitForImageChangeCheck({ page, anchorToClick: colorLabelToClick });
+          await page.waitForTimeout(2000); // Give extra time for UI to update after color change
         } else {
-          console.log(`Color swatch ${i + 1}/${initialColorSwatchLabels.length} is already selected, proceeding.`);
-          await page.waitForTimeout(500); // Small wait even if selected to ensure stability
+          console.log(`Color swatch for: '${targetColorValue}' (${i + 1}/${colorsToProcess.length}) is already selected, proceeding.`);
+          await page.waitForTimeout(1000); // Small wait even if selected to ensure stability
         }
+        
+        // Ensure we capture the currently selected color value from the page after interaction
+        let currentOption1Value = await getSelectedColorValue(page);
+        console.log(`Confirmed current Color: '${currentOption1Value}'`);
 
-        // Extract the selected color value
-        let currentOption1Value = await page.$eval(SELECTORS.PRODUCT.SELECTED_COLOR_VALUE_DISPLAY, el => el.textContent.trim())
-                                    .catch(async () => {
-                                        // Fallback to alt text of image or label text if specific display element not found
-                                        const imgAlt = await colorLabel.$eval('img', img => img.alt).catch(() => '');
-                                        if (imgAlt) return imgAlt.replace('Color: ', '').trim();
-                                        const ariaLabel = await colorLabel.getAttribute('aria-label');
-                                        if (ariaLabel) return ariaLabel.replace('Color: ', '').trim();
-                                        return (await colorLabel.textContent()).trim() || 'Unknown Color';
-                                    });
-        console.log(`Current selected Color: '${currentOption1Value}'`);
+        const mainImage = await extractMainImage(page);
 
-        const mainImage = await extractMainImage(page); // Extract image after color change
-
-        // !!! CRITICAL: Re-fetch size elements after color changes !!!
-        // Size options are often dependent on the selected color.
+        // !!! CRITICAL: Re-fetch size elements *after* each color change !!!
+        // Sizes often dynamically update based on the selected color.
         let currentSizeChipLabels = await page.$$(SELECTORS.PRODUCT.SIZE_RADIO_LABELS);
+        
+        const sizesToProcess = [];
+        for (const label of currentSizeChipLabels) {
+            const value = await label.textContent().trim();
+            const isDisabled = await label.evaluate(el => el.getAttribute('aria-disabled') === 'true' || el.classList.contains('disabled') || el.classList.contains('unavailable'));
+            if (value && !isDisabled) {
+                sizesToProcess.push({ element: label, value: value });
+            } else if (isDisabled) {
+                console.log(`Skipping disabled size: ${value || 'N/A'}`);
+            }
+        }
+        
+        if (sizesToProcess.length > 0) {
+          console.log(`--- Found ${sizesToProcess.length} available sizes for color "${currentOption1Value}" ---`);
 
-        if (currentSizeChipLabels.length > 0) {
-          console.log(`--- Processing ${currentSizeChipLabels.length} sizes for color "${currentOption1Value}" ---`);
+          for (let j = 0; j < sizesToProcess.length; j++) {
+            // Re-fetch the specific size element to ensure it's current
+            const targetSizeValue = sizesToProcess[j].value;
+            const sizeLabelToClick = await page.locator(`
+                ${SELECTORS.PRODUCT.SIZE_RADIO_LABELS}:has-text("${targetSizeValue}" i)[role="radio"],
+                ${SELECTORS.PRODUCT.SIZE_RADIO_LABELS}:has-text("${targetSizeValue}" i) input[type="radio"] >> xpath=ancestor::label
+            `).first();
 
-          for (let j = 0; j < currentSizeChipLabels.length; j++) {
-            // !!! CRITICAL: Re-fetch size elements inside the nested loop !!!
-            const latestSizeChipLabels = await page.$$(SELECTORS.PRODUCT.SIZE_RADIO_LABELS);
-            const sizeLabel = latestSizeChipLabels[j];
-
-            if (!sizeLabel) {
-                console.warn(`Size label at index ${j} was not found on re-fetch for color ${currentOption1Value}, skipping.`);
+            if (!sizeLabelToClick || !(await sizeLabelToClick.isVisible())) {
+                console.warn(`Could not find clickable element for size: ${targetSizeValue} for color ${currentOption1Value}, skipping.`);
                 continue;
             }
 
-            // Check if the size option is currently selected or disabled
-            const isSizeSelected = await sizeLabel.evaluate(el =>
-              el.classList.contains('selected') ||
-              el.classList.contains('selection-tile-selected') ||
-              el.querySelector('input[type="radio"]:checked') !== null ||
-              el.getAttribute('aria-checked') === 'true'
+            const isSizeSelected = await sizeLabelToClick.evaluate(el =>
+              el.classList.contains('selected') || el.classList.contains('selection-tile-selected') || el.querySelector('input[type="radio"]:checked') !== null || el.getAttribute('aria-checked') === 'true'
             );
-            const isSizeDisabled = await sizeLabel.evaluate(el =>
-              el.getAttribute('aria-disabled') === 'true' ||
-              el.classList.contains('disabled') ||
-              el.classList.contains('unavailable')
-            );
-
-            if (isSizeDisabled) {
-              console.log(`Skipping disabled size chip for color "${currentOption1Value}" at index ${j}: ${await sizeLabel.textContent().catch(() => 'N/A')}`);
-              continue; // Skip if disabled
-            }
 
             if (!isSizeSelected) {
-              console.log(`Clicking size chip ${j + 1}/${currentSizeChipLabels.length} for color "${currentOption1Value}".`);
-              await safeClick(sizeLabel);
+              console.log(`Clicking size chip for: '${targetSizeValue}' (${j + 1}/${sizesToProcess.length}) for color "${currentOption1Value}".`);
+              await safeClick(sizeLabelToClick);
               await page.waitForTimeout(1000); // Give time for price/stock to update
             } else {
-              console.log(`Size chip ${j + 1}/${currentSizeChipLabels.length} for color "${currentOption1Value}" is already selected, proceeding.`);
-              await page.waitForTimeout(500); // Small wait even if selected
+              console.log(`Size chip for: '${targetSizeValue}' (${j + 1}/${sizesToProcess.length}) for color "${currentOption1Value}" is already selected, proceeding.`);
+              await page.waitForTimeout(500);
             }
 
-            // Extract the selected size value
-            let currentOption2Value = await page.$eval(SELECTORS.PRODUCT.SELECTED_SIZE_VALUE_DISPLAY, el => el.textContent.trim())
-                                        .catch(async () => (await sizeLabel.textContent()).trim() || 'Unknown Size');
-            console.log(`Current selected Size: '${currentOption2Value}'`);
+            let currentOption2Value = await getSelectedSizeValue(page);
+            console.log(`Confirmed current Size: '${currentOption2Value}' for color '${currentOption1Value}'`);
 
             const displayedCostPerItemText = await extractDisplayedCostPerItem(page);
             const { costPerItem, variantPrice, compareAtPrice } = calculatePrices(displayedCostPerItemText);
 
             allShopifyRows.push(createShopifyRow({
               handle,
-              title: allShopifyRows.length === 0 ? title : "", // Only add title for the first variant
-              descriptionHtml: allShopifyRows.length === 0 ? descriptionHtml : "", // Only add description for the first variant
-              tags: allShopifyRows.length === 0 ? finalProductTags : "", // Only add tags for the first variant
+              title: allShopifyRows.length === 0 ? title : "",
+              descriptionHtml: allShopifyRows.length === 0 ? descriptionHtml : "",
+              tags: allShopifyRows.length === 0 ? finalProductTags : "",
               option1Name,
               option1Value: currentOption1Value,
               option2Name,
@@ -512,50 +573,50 @@ export async function extractMacyProductData(page, url, extraTags) {
           }));
         }
       }
-    } else if (initialSizeChipLabels.length > 0) {
+    } else if (sizeChipLabels.length > 0) {
       // Case: Product has only sizes, no colors (master variant)
-      console.log(`--- Processing ${initialSizeChipLabels.length} size variants (no colors) ---`);
-      if (!option1Name) option1Name = "Size"; // Ensure Option1 Name is "Size" if only sizes are present
+      console.log(`--- Found ${sizeChipLabels.length} size variants (no colors) ---`);
+      if (!option1Name) option1Name = "Size";
 
-      for (let i = 0; i < initialSizeChipLabels.length; i++) {
-        // !!! CRITICAL: Re-fetch size elements inside the loop !!!
-        const currentSizeChipLabels = await page.$$(SELECTORS.PRODUCT.SIZE_RADIO_LABELS);
-        const sizeLabel = currentSizeChipLabels[i];
+      const sizesToProcess = [];
+      for (const label of sizeChipLabels) {
+          const value = await label.textContent().trim();
+          const isDisabled = await label.evaluate(el => el.getAttribute('aria-disabled') === 'true' || el.classList.contains('disabled') || el.classList.contains('unavailable'));
+          if (value && !isDisabled) {
+              sizesToProcess.push({ element: label, value: value });
+          } else if (isDisabled) {
+              console.log(`Skipping disabled size: ${value || 'N/A'}`);
+          }
+      }
 
-        if (!sizeLabel) {
-            console.warn(`Size label at index ${i} was not found on re-fetch, skipping.`);
+      for (let i = 0; i < sizesToProcess.length; i++) {
+        // Re-fetch the specific size element to ensure it's current
+        const targetSizeValue = sizesToProcess[i].value;
+        const sizeLabelToClick = await page.locator(`
+            ${SELECTORS.PRODUCT.SIZE_RADIO_LABELS}:has-text("${targetSizeValue}" i)[role="radio"],
+            ${SELECTORS.PRODUCT.SIZE_RADIO_LABELS}:has-text("${targetSizeValue}" i) input[type="radio"] >> xpath=ancestor::label
+        `).first();
+
+        if (!sizeLabelToClick || !(await sizeLabelToClick.isVisible())) {
+            console.warn(`Could not find clickable element for size: ${targetSizeValue}, skipping.`);
             continue;
         }
 
-        const isSizeSelected = await sizeLabel.evaluate(el =>
-          el.classList.contains('selected') ||
-          el.classList.contains('selection-tile-selected') ||
-          el.querySelector('input[type="radio"]:checked') !== null ||
-          el.getAttribute('aria-checked') === 'true'
+        const isSizeSelected = await sizeLabelToClick.evaluate(el =>
+          el.classList.contains('selected') || el.classList.contains('selection-tile-selected') || el.querySelector('input[type="radio"]:checked') !== null || el.getAttribute('aria-checked') === 'true'
         );
-        const isSizeDisabled = await sizeLabel.evaluate(el =>
-          el.getAttribute('aria-disabled') === 'true' ||
-          el.classList.contains('disabled') ||
-          el.classList.contains('unavailable')
-        );
-
-        if (isSizeDisabled) {
-          console.log(`Skipping disabled size chip at index ${i}: ${await sizeLabel.textContent().catch(() => 'N/A')}`);
-          continue; // Skip if disabled
-        }
 
         if (!isSizeSelected) {
-          console.log(`Clicking size chip ${i + 1}/${initialSizeChipLabels.length}.`);
-          await safeClick(sizeLabel);
-          await page.waitForTimeout(1000); // Give time for price/stock to update
+          console.log(`Clicking size chip for: '${targetSizeValue}' (${i + 1}/${sizesToProcess.length}).`);
+          await safeClick(sizeLabelToClick);
+          await page.waitForTimeout(1000);
         } else {
-          console.log(`Size chip ${i + 1}/${initialSizeChipLabels.length} is already selected, proceeding.`);
-          await page.waitForTimeout(500); // Small wait even if selected
+          console.log(`Size chip for: '${targetSizeValue}' (${i + 1}/${sizesToProcess.length}) is already selected, proceeding.`);
+          await page.waitForTimeout(500);
         }
 
-        let currentOption1Value = await page.$eval(SELECTORS.PRODUCT.SELECTED_SIZE_VALUE_DISPLAY, el => el.textContent.trim())
-                                    .catch(async () => (await sizeLabel.textContent()).trim() || 'Unknown Size');
-        console.log(`Current selected Size: '${currentOption1Value}'`);
+        let currentOption1Value = await getSelectedSizeValue(page);
+        console.log(`Confirmed current Size: '${currentOption1Value}'`);
 
         const mainImage = await extractMainImage(page);
         const displayedCostPerItemText = await extractDisplayedCostPerItem(page);
@@ -601,7 +662,7 @@ export async function extractMacyProductData(page, url, extraTags) {
     return allShopifyRows;
   } catch (error) {
     console.error(`❌ CRITICAL ERROR in extractMacyProductData for URL: ${url}:`, error);
-    throw error; // Re-throw to propagate the error upstream
+    throw error;
   }
 }
 
@@ -620,8 +681,8 @@ function createShopifyRow({
   option2Name = "",
   option2Value = "",
   variantPrice,
-  compareAtPrice, // Price the product was originally, or list price
-  costPerItem, // Actual cost of the item to you
+  compareAtPrice,
+  costPerItem,
   mainImage,
   imageAltText,
   url
@@ -630,30 +691,30 @@ function createShopifyRow({
     "Handle": handle,
     "Title": title,
     "Body (HTML)": descriptionHtml,
-    "Vendor": "Macy's", // Hardcoded vendor
-    "Type": "Footwear", // Example type, consider making this dynamic if needed
+    "Vendor": "Macy's",
+    "Type": "Footwear",
     "Tags": tags,
-    "Published": "TRUE", // Default to true for publishing
+    "Published": "TRUE",
     "Option1 Name": option1Name,
     "Option1 Value": option1Value,
     "Option2 Name": option2Name,
     "Option2 Value": option2Value,
-    "Option3 Name": "", // Not used in this scenario
-    "Option3 Value": "", // Not used in this scenario
-    "Variant SKU": extractSKU(url), // Extract SKU from URL, if available
-    "Variant Grams": "", // Shopify field, often left empty or calculated later
+    "Option3 Name": "",
+    "Option3 Value": "",
+    "Variant SKU": extractSKU(url),
+    "Variant Grams": "",
     "Variant Price": variantPrice,
-    "Variant Compare At Price": compareAtPrice, // The "was" price or original price
-    "Variant Cost": costPerItem, // Your cost for the item
-    "Variant Taxable": "TRUE", // Default to taxable
-    "Variant Barcode": "", // UPC/EAN, often left empty
+    "Variant Compare At Price": compareAtPrice,
+    "Variant Cost": costPerItem,
+    "Variant Taxable": "TRUE",
+    "Variant Barcode": "",
     "Image Src": mainImage,
-    "Image Position": 1, // Position of this image in the gallery
+    "Image Position": 1,
     "Image Alt Text": imageAltText,
-    "Gift Card": "FALSE", // Not a gift card
-    "SEO Title": "", // Can be dynamically generated or left empty
-    "SEO Description": "", // Can be dynamically generated or left empty
-    "Google Shopping / Google Product Category": "", // Important for Google Shopping feeds
+    "Gift Card": "FALSE",
+    "SEO Title": "",
+    "SEO Description": "",
+    "Google Shopping / Google Product Category": "",
     "Google Shopping / Gender": "",
     "Google Shopping / Age Group": "",
     "Google Shopping / MPN": "",
@@ -665,12 +726,12 @@ function createShopifyRow({
     "Google Shopping / Custom Label 2": "",
     "Google Shopping / Custom Label 3": "",
     "Google Shopping / Custom Label 4": "",
-    "Variant Image": mainImage, // The image associated with this specific variant
-    "Variant Weight Unit": "oz", // Default weight unit
+    "Variant Image": mainImage,
+    "Variant Weight Unit": "oz",
     "Variant Tax Code": "",
-    "Cost per item": costPerItem, // Duplicate for clarity in CSV, matches Variant Cost
-    "Price": variantPrice, // Duplicate for clarity in CSV, matches Variant Price
-    "Compare At Price": compareAtPrice, // Duplicate for clarity in CSV, matches Variant Compare At Price
-    "original_product_url": url, // Store the original URL for reference
+    "Cost per item": costPerItem,
+    "Price": variantPrice,
+    "Compare At Price": compareAtPrice,
+    "original_product_url": url,
   };
 }
