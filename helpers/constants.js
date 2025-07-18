@@ -1,25 +1,36 @@
-// helpers/constants.js (After)
+
+// helpers/constants.js
 export const SELECTORS = {
   PRODUCT: {
-    TITLE_BRAND: "h1.product-title a", // Brand name from h1
-    TITLE_NAME: "h1.product-title span", // Product name from h1
-    PRICE_WRAPPER: "div.price-wrapper", // Wrapper for price information
-    MAIN_IMAGE: 'div.picture-container img[src*="is/image"]', // Main product image
-    COLOR_SWATCHES_CONTAINER: "div.color-swatches", // Container for color variants
-    COLOR_OPTION_NAME: "div.flex-container.align-justify > span:nth-child(1)", // Option name for colors (e.g., "Color:")
-    COLOR_OPTION_VALUE: "div.flex-container.align-justify > span:nth-child(2)", // Option value for colors (e.g., "Gold Soft Metallic")
-    COLOR_RADIO_LABELS: 'form.colors-form ol > li label.color-swatch-sprite-label', // Clickable color labels
-    SIZE_CHIPS_CONTAINER: 'div[data-testid="size-chips"]', // Container for size variants
-    SIZE_OPTION_NAME: 'div[data-testid="size-chips"] > div.margin-bottom-xs.grid-x span[data-testid="size-label"]', // Option name for sizes (e.g., "Size:")
-    SIZE_OPTION_VALUE: 'div[data-testid="size-chips"] > div.margin-bottom-xs.grid-x span.label.updated-label.margin-left-xxxs', // Option value for sizes
-    SIZE_RADIO_LABELS: 'fieldset[data-testid="size-chips"] div.cell.shrink label.label', // Clickable size labels
-    DESCRIPTION_BUTTON: 'button.switch.link-med', // Button to reveal description
-    DESCRIPTION_CONTENT: 'div#details-drawer > div > p', // Main product description
-    FEATURES_SECTION: 'ul[data-v-4668fb90] > li[data-auto="product-summary-section"]', // Features section
-    SHIPPING_RETURNS_SECTION: 'ul[data-v-4668fb90] > li[data-auto="shipping-returns-section"]', // Shipping & Returns section
-  },
+    // Title
+    TITLE_BRAND: 'h1.pdp-title span.brand', // Selector for the brand name
+    TITLE_NAME: 'h1.pdp-title span.product-name', // Selector for the product name
+
+    // Price
+    PRICE_WRAPPER: '.price-info', // A common parent for price elements
+    SALE_PRICE: '.price-info .sale-price', // Selector for sale price (if applicable)
+    ORIGINAL_PRICE: '.price-info .original-price', // Selector for original price (if applicable)
+
+    // Image
+    MAIN_IMAGE: '.main-image-component img', // Selector for the main product image
+
+    // Description & Features
+    DESCRIPTION_BUTTON: 'button[id*="description-header"], button[aria-controls*="product-details-content"]', // Common buttons to expand description
+    DESCRIPTION_CONTENT: '.product-details-section #product-details-content', // Main description container after expanding
+    FEATURES_SECTION: 'section[data-auto="product-details-section-features"]', // Selector for the features section
+    SHIPPING_RETURNS_SECTION: 'section[data-auto="product-details-section-shipping"]', // Selector for shipping & returns
+
+    // Variants (Colors & Sizes)
+    COLOR_OPTION_NAME: 'legend:has-text("Color"), .color-swatches legend', // Selector for the text "Color"
+    COLOR_RADIO_LABELS: '.color-swatches .color-swatch-item label', // Labels for color radio buttons (clickable elements)
+
+    SIZE_OPTION_NAME: 'legend:has-text("Size"), .size-selector legend', // Selector for the text "Size"
+    SIZE_RADIO_LABELS: '.size-selector .size-chip-item label', // Labels for size radio buttons/chips (clickable elements)
+  
+},
   BREADCRUMBS: {
-    LINKS: 'ol.breadcrumbs-list li.p-menuitem > a', // Breadcrumb links
+    LINKS: 'nav[aria-label="breadcrumbs"] a, .breadcrumbs-container a, .breadcrumbs-wrapper a',
+   // Breadcrumb links
   },
 };
 
