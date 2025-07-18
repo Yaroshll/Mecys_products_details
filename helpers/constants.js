@@ -26,18 +26,18 @@ export const SELECTORS = {
     // are likely for *displaying* the currently selected variant, not for *clicking* to select variants.
     // I will use more common selectors for *clickable elements* for iteration,
     // and note the ones you provided if they are for getting the *value* of the selected item.
-    COLOR_OPTION_NAME: 'img.color-swatch-sprite', // This appears to be the generic label for the option name
-    // For clickable color swatches, usually a label or div wrapping a radio input
-    COLOR_RADIO_LABELS: 'span[data-testid="selected-color-name"]', // More general selectors for clickable elements.
-    // The user provided `span data-testid="selected-color-name"` which is likely the display of the *selected* color value.
-    SELECTED_COLOR_VALUE_DISPLAY: 'span[data-testid="selected-color-name"]', // For extracting the value of the currently selected color
+   // Variants (Colors & Sizes) - UPDATED BASED ON YOUR HTML & LIVE PAGE INSPECTION
+    COLOR_OPTION_NAME: 'span.updated-label.label', // Still seems correct for the option name itself
+    // Corrected: Target the clickable label or a div with data-testid that is the clickable swatch
+    COLOR_RADIO_LABELS: 'label.color-swatch-item[data-testid="color-swatch-label"], .color-swatches .color-swatch-item',
+    SELECTED_COLOR_VALUE_DISPLAY: 'span[data-testid="selected-color-name"]', // This looks correct
 
-    SIZE_OPTION_NAME: 'label.size-tile .selection-tile', // This appears to be the generic label for the option name
-    // For clickable size chips, usually a label or div wrapping a radio input
-    SIZE_RADIO_LABELS: '.size-selector .size-chip-item label, .size-selector [data-auto="size-tile-label"]', // More general selectors for clickable elements.
-    // The user provided `span id="selection-tile-5036768-1"` which is too specific.
-    // This is likely the display of the *selected* size value.
-    SELECTED_SIZE_VALUE_DISPLAY: 'span.updated-label .label > span', // For extracting the value of the currently selected size (starts with selection-tile-)
+    SIZE_OPTION_NAME: 'span.updated-label.label', // Still seems correct for the option name itself
+    // Corrected: Target the clickable label for sizes
+    SIZE_RADIO_LABELS: 'label.size-tile.selection-tile',
+    // Corrected: Target the display span for selected size value
+    SELECTED_SIZE_VALUE_DISPLAY: 'span[data-auto="size-picker-selected-value"], span.label.updated-label.margin-left-xxxs',
+  
   },
   BREADCRUMBS: {
     LINKS: 'ol.p-breadcrumb-list > li.p-menuitem > a',
