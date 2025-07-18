@@ -1,175 +1,75 @@
-import { launchBrowser } from './helpers/browser.js';
-import {
-  extractTitle,
-  extractPrice,
-  extractMainImage,
-  extractBreadcrumbs,
-  extractDescription,
-  //getColorVariants,
- // getSizeVariants
-} from './helpers/extractors.js';
-import { saveToCSV } from './helpers/fileIO.js';
-import { formatHandleFromUrl, calculateVariantPrice } from './helpers/formatters.js';
+// index.js (After)
+import { launchBrowser } from "./helpers/browser.js";
+import { extractMacyProductData } from "./helpers/extractors.js"; // Renamed for clarity
+import { saveToCSVAndExcel } from "./helpers/fileIO.js";
+import "dotenv/config";
 
 (async () => {
   const browser = await launchBrowser();
-  const page = await browser.newPage();
+  const context = await browser.newContext({
+    userAgent:
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    locale: "en-US",
+    timezoneId: "America/New_York",
+    viewport: { width: 1366, height: 768 },
+    colorScheme: "light",
+    extraHTTPHeaders: {
+      "Accept-Language": "en-US,en;q=0.9",
+    },
+  });
 
-  const urls = [
-    'https://www.macys.com/shop/product/jessica-simpson-olivine-bow-high-heel-stiletto-dress-sandals?ID=19766033'
-    // Add more product URLs here
+  const page = await context.newPage();
+
+  // Array of URLs to scrape
+  const urlsToScrape = [
+    "https://www.macys.com/shop/product/jessica-simpson-olivine-bow-high-heel-stiletto-dress-sandals?ID=19766033&tdp=cm_app~zMCOM-NAVAPP~xcm_zone~zrvi_hpdash_zone~xcm_choiceId~z~xcm_pos~zPos2~xcm_srcCatID~z17570",
+    // Add more URLs here if needed:
+    // "https://www.macys.com/shop/product/another-product-url",
   ];
 
-  const allProducts = [];
-  let successCount = 0;
+  let allShopifyRows = [];
+  let failedUrls = [];
+  let processedCount = 0;
+  const totalUrls = urlsToScrape.length;
 
-  console.log(`🚀 Starting scraping for ${urls.length} URLs...`);
+  for (const urlEntry of urlsToScrape) {
+    let url, extraTags;
+    // This allows for future expansion if you want to add specific tags per URL
+    if (typeof urlEntry === "string") {
+      url = urlEntry;
+      extraTags = "";
+    } else if (typeof urlEntry === "object" && urlEntry.url) {
+      url = urlEntry.url;
+      extraTags = urlEntry.tags || "";
+    } else {
+      console.warn("❌ Invalid urlEntry:", urlEntry);
+      failedUrls.push(urlEntry);
+      continue;
+    }
 
-  for (const [index, url] of urls.entries()) {
+    processedCount++;
+    console.log(`\n--- Processing URL ${processedCount} of ${totalUrls} ---`);
+    console.log(`URL: ${url}`);
+
     try {
-      console.log(`➡️ (${index + 1}/${urls.length}) Processing: ${url}`);
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-
-      const title = await extractTitle(page);
-      const handle = formatHandleFromUrl(url, title);
-      const costPerItem = await extractPrice(page);
-      const variantPrice = calculateVariantPrice(costPerItem);
-      const mainImage = await extractMainImage(page);
-      const tags = await extractBreadcrumbs(page);
-      const description = await extractDescription(page);
-
-      console.log('📝 Basic product info extracted.');
-
-      // const colorVariants = await getColorVariants(page);
-      // const sizeVariants = await getSizeVariants(page);
-
-      // if (colorVariants.length === 0 && sizeVariants.length === 0) {
-      //   console.log('ℹ️ No variants detected. Saving base product.');
-      //   allProducts.push(createProductRow({
-      //     handle, title, description, tags, url,
-      //     costPerItem, variantPrice, mainImage
-      //   }));
-      // }
-      // else if (colorVariants.length > 0 && sizeVariants.length > 0) {
-      //   console.log('ℹ️ Color & Size variants found. Looping...');
-      //   for (const color of colorVariants) {
-      //     await color.element.click();
-      //     await page.waitForTimeout(1000);
-
-      //     const colorImage = await extractMainImage(page);
-      //     const colorPrice = await extractPrice(page);
-      //     const colorVariantPrice = calculateVariantPrice(colorPrice);
-
-      //     // Save color only
-      //     allProducts.push(createProductRow({
-      //       handle, title, description, tags, url,
-      //       costPerItem: colorPrice,
-      //       variantPrice: colorVariantPrice,
-      //       mainImage: colorImage,
-      //       option1Name: 'Color',
-      //       option1Value: color.label
-      //     }));
-
-      //     // Loop on sizes with current color
-      //     for (const size of sizeVariants) {
-      //       allProducts.push(createProductRow({
-      //         handle, title, description, tags, url,
-      //         costPerItem: colorPrice,
-      //         variantPrice: colorVariantPrice,
-      //         mainImage: colorImage,
-      //         option1Name: 'Color',
-      //         option1Value: color.label,
-      //         option2Name: 'Size',
-      //         option2Value: size
-      //       }));
-      //     }
-      //   }
-      // }
-      // else if (colorVariants.length > 0) {
-      //   console.log('ℹ️ Only color variants found. Looping...');
-      //   for (const color of colorVariants) {
-      //     await color.element.click();
-      //     await page.waitForTimeout(1000);
-
-      //     const colorImage = await extractMainImage(page);
-      //     const colorPrice = await extractPrice(page);
-      //     const colorVariantPrice = calculateVariantPrice(colorPrice);
-
-      //     allProducts.push(createProductRow({
-      //       handle, title, description, tags, url,
-      //       costPerItem: colorPrice,
-      //       variantPrice: colorVariantPrice,
-      //       mainImage: colorImage,
-      //       option1Name: 'Color',
-      //       option1Value: color.label
-      //     }));
-      //   }
-      // }
-      // else if (sizeVariants.length > 0) {
-      //   console.log('ℹ️ Only size variants found. Looping...');
-      //   for (const size of sizeVariants) {
-      //     allProducts.push(createProductRow({
-      //       handle, title, description, tags, url,
-      //       costPerItem,
-      //       variantPrice,
-      //       mainImage,
-      //       option1Name: 'Size',
-      //       option1Value: size
-      //     }));
-      //   }
-      // }
-
-      successCount++;
-      console.log(`✅ Success (${successCount}/${urls.length}): ${url}`);
-    } catch (error) {
-      console.error(`❌ Error processing: ${url} - ${error.message}`);
+      // Renamed the function to be more specific to Macy's
+      const shopifyRows = await extractMacyProductData(page, url, extraTags);
+      allShopifyRows.push(...shopifyRows);
+      console.log(`✅ Successfully processed URL ${processedCount} of ${totalUrls}: ${url}`);
+    } catch (err) {
+      console.error(`❌ Failed to process URL ${processedCount} of ${totalUrls}: ${url}. Error: ${err.message}`);
+      failedUrls.push({ url, tags: extraTags });
     }
   }
 
+  saveToCSVAndExcel({
+    productRow: allShopifyRows,
+    excel: false, // Set to true if you also want an Excel file
+    csv: true,
+    failedUrls,
+  });
+  console.log("\n✅ Scraped data saved to output files.");
+
   await browser.close();
-
-  if (allProducts.length > 0) {
-    saveToCSV(allProducts);
-    console.log(`🎯 Finished successfully. Processed ${successCount} out of ${urls.length} URLs.`);
-    console.log(`📁 Saved ${allProducts.length} product rows to output/products.csv`);
-  } else {
-    console.log('⚠️ No products were scraped.');
-  }
+  console.log("Browser closed.");
 })();
-
-function createProductRow({
-  handle,
-  title,
-  description,
-  tags,
-  url,
-  costPerItem,
-  variantPrice,
-  mainImage,
-  option1Name = '',
-  option1Value = '',
-  option2Name = '',
-  option2Value = ''
-}) {
-  return {
-    'Handle': handle,
-    'Title': title,
-    'Body (HTML)': description,
-    'Variant SKU': '',
-    'Option1 Name': option1Name,
-    'Option1 Value': option1Value,
-    'Option2 Name': option2Name,
-    'Option2 Value': option2Value,
-    'Cost per item': costPerItem,
-    'Variant Price': variantPrice,
-    'Variant Image': mainImage,
-    'Image Src': mainImage,
-    'Variant Fulfillment Service': 'manual',
-    'Variant Inventory Policy': 'deny',
-    'Variant Inventory Tracker': 'shopify',
-    'Type': 'USA Products',
-    'Vendor': "Macy's",
-    'Tags': tags,
-    'original_product_url': url
-  };
-}
