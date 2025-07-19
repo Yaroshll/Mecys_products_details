@@ -4,7 +4,7 @@ import {
   extractSKU,
   formatHandleFromUrl,
 } from "./formatters.js";
-import { gotoMacyWithRetries } from "./gotoWithRetries.js";
+import { gotoMacyWithRetries } from "./gotoWithRetries.js"; // Assuming this file exists and works
 import { SELECTORS } from "./constants.js";
 
 /**
@@ -33,7 +33,6 @@ async function safeClick(element, page, timeout = 15000) {
           el.click();
         });
       } else { // Fallback for Locator if direct evaluate is not easily available
-          // This path might be less robust for Locators. Consider re-fetching ElementHandle if needed.
           const elHandle = await element.elementHandle();
           if (elHandle) {
             await elHandle.evaluate((el) => {
@@ -219,7 +218,6 @@ async function extractLabel(anchor) {
  */
 async function getVariantGroups(page) {
   const groups = {};
-  // Use SELECTORS.VARIANTS.CONTAINER here
   const variantSections = await page.$$(SELECTORS.VARIANTS.CONTAINER);
 
   for (const section of variantSections) {
@@ -259,17 +257,6 @@ async function getVariantGroups(page) {
   return groups;
 }
 
-/**
- * Helper to capitalize the first letter of a string.
- * (Moved here for self-containment if not in formatters.js)
- * @param {string} str - The input string.
- * @returns {string} The capitalized string.
- */
-function capitalizeFirst(str) {
-  if (!str) return "";
-  return str.charAt(0).toUpperCase() + str.slice(1);
-}
-
 // -----------------------------------------------------------------------------
 // MAIN EXTRACTION FUNCTION
 // -----------------------------------------------------------------------------
@@ -277,19 +264,36 @@ function capitalizeFirst(str) {
 export async function extractMacyProductData(page, url, extraTags) {
   const allShopifyRows = [];
 
-  await gotoMacyWithRetries(page, url);
-  await page.waitForLoadState("networkidle");
-  await page.waitForTimeout(5000); // Increased initial wait for full page load
-
-  // Inject CSS to hide overlays (from previous iteration)
+  // 1. Navigate to the page with retries and a longer timeout for the initial load.
+  console.log(`Navigating to URL: ${url}`);
   try {
+    await gotoMacyWithRetries(page, url);
+    await page.waitForLoadState("networkidle", { timeout: 60000 }); // Increased to 60 seconds
+    await page.waitForTimeout(5000); // Additional wait for scripts to execute
+    console.log("Page loaded to networkidle state.");
+  } catch (navigationError) {
+    console.error(`❌ Initial page navigation or load state failed: ${navigationError.message}`);
+    return []; 
+  }
+
+  // 2. Inject CSS more aggressively to hide overlays.
+  try {
+    console.log("Injecting CSS to hide overlays...");
     await page.addStyleTag({
       content: `
+        /* General hidden elements and modals */
         .modal-overlay, .modal-dialog, #modal-root, [role="dialog"], .ReactModal__Overlay, .ReactModal__Content,
         .loyalty-banner, .toast-notification, .cookie-banner, .interstitial-modal, .marketing-modal-wrapper,
-        .full-width-overlay, .overlay-backdrop, .atc-flyout,
-        #global-header, .slideout-header, [data-auto="product-details-section-shipping"], .sticky-bottom-bar,
-        .enhanced-offer-banner, .footer-container, [data-auto="added-to-bag-modal"] {
+        .full-width-overlay, .overlay-backdrop, .atc-flyout, .x-modal-backdrop, ._modal-content, ._modal-overlay,
+        /* Specific Macy's elements that might cover content or prevent interaction */
+        .fofo-overlay, ._overlay, ._dialog, .overlay.active, .is-active.f-modal__backdrop,
+        .overlay-layer, .marketing-popup-container, .modal.fade.in, .modal-open .modal,
+        .email-capture-overlay, .email-signup-modal, .global-site-message,
+        
+        /* Elements that might stick at top/bottom and interfere with scrolling/visibility */
+        #global-header, .slideout-header, .sticky-bottom-bar,
+        .enhanced-offer-banner, .footer-container, [data-auto="added-to-bag-modal"],
+        .product-callouts-container { /* This might be useful if it covers things */
           visibility: hidden !important;
           pointer-events: none !important;
           height: 0 !important;
@@ -298,12 +302,34 @@ export async function extractMacyProductData(page, url, extraTags) {
           opacity: 0 !important;
           display: none !important;
         }
-        body.modal-open, html.no-scroll { overflow: auto !important; }
+        body.modal-open, html.no-scroll, body.noscroll { overflow: auto !important; }
+        /* Ensure primary content is visible */
+        #main-content, .main-wrapper, .product-main-content {
+            visibility: visible !important;
+            pointer-events: auto !important;
+            height: auto !important;
+            width: auto !important;
+            overflow: visible !important;
+            opacity: 1 !important;
+            display: block !important;
+        }
       `
     });
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(2000); // Give time for styles to apply
+    console.log("CSS injected successfully.");
   } catch (styleError) {
     console.warn("⚠️ Could not apply style tag to hide elements:", styleError.message);
+  }
+
+  // 3. Wait for a crucial element to ensure the product page content is present.
+  try {
+    console.log("Waiting for product title selector to be visible...");
+    await page.waitForSelector(SELECTORS.PRODUCT.TITLE_NAME, { state: 'visible', timeout: 30000 }); // Wait up to 30 seconds for the title
+    console.log("Product title found.");
+  } catch (selectorError) {
+    console.error(`❌ Product title selector not found within timeout: ${selectorError.message}`);
+    console.log("⚠️ No product data to save due to missing key elements after load.");
+    return []; // Exit if the core product title isn't there
   }
 
   const { title } = await extractTitle(page);
