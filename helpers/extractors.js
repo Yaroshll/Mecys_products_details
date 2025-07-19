@@ -23,12 +23,19 @@ async function safeClick(element, page, timeout = 15000) {
     }
   }
 }
-
 export async function extractMacyProductData(page, url, extraTags) {
   const allShopifyRows = [];
   await gotoMacyWithRetries(page, url);
-  await page.waitForLoadState("networkidle");
+
+  await page.waitForLoadState("domcontentloaded");
   await page.waitForTimeout(3000);
+
+  try {
+    await page.waitForSelector(SELECTORS.PRODUCT.TITLE_NAME, { timeout: 10000 });
+  } catch {
+    console.warn("⚠️ Title selector not found, skipping product.");
+    return [];
+  }
 
   const handle = formatHandleFromUrl(url);
   const { title } = await extractTitle(page);
