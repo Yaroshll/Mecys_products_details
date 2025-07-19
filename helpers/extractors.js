@@ -11,7 +11,7 @@ async function safeClick(element, page, timeout = 15000) {
     await element.scrollIntoViewIfNeeded();
     await element.click({ timeout });
     await page.waitForTimeout(1000);
-  } catch {
+  } catch (error) {
     try {
       await element.evaluate((el) => {
         el.scrollIntoView({ block: "center", behavior: "instant" });
@@ -83,6 +83,7 @@ async function getVariantGroups(page) {
     const titleHandle = await section.$('div > span');
     const title = titleHandle ? (await titleHandle.textContent()).trim() : "";
     if (!title) continue;
+
     const anchors = await section.$$('div > ul > li > a');
     groups[title] = anchors.map(anchor => ({ anchor }));
   }
@@ -95,6 +96,7 @@ export async function extractMacyProductData(page, url, extraTags) {
   await page.waitForLoadState("networkidle");
   await page.waitForTimeout(3000);
 
+  // Extract common data once
   const { title } = await extractTitle(page);
   const descriptionHtml = await extractFullDescription(page);
   const breadcrumbs = await extractBreadcrumbs(page);
@@ -105,50 +107,140 @@ export async function extractMacyProductData(page, url, extraTags) {
     ...(extraTags ? extraTags.split(",").map(t => t.trim()) : [])
   ])].join(", ");
 
-  const initialVariants = await getVariantGroups(page);
-  const colors = initialVariants["Color"] || [];
-  const sizes = initialVariants["Size"] || [];
+  const variants = await getVariantGroups(page);
+  const colors = variants["Color"] || [];
+  const sizes = variants["Size"] || [];
 
-  let selectedColorName = "";
-  try {
-    selectedColorName = await page.$eval(
-      SELECTORS.PRODUCT.SELECTED_COLOR_VALUE_DISPLAY,
-      el => el.textContent.trim()
-    );
-  } catch {}
-
-  if (selectedColorName) {
-    await processColor(selectedColorName, page, allShopifyRows, { title, descriptionHtml, finalProductTags, handle, url, sizes });
-  }
-
-  for (const color of colors) {
-    const colorLabel = await color.anchor.evaluate(el =>
-      el.getAttribute('aria-label')?.replace('Color: ', '') ||
-      el.querySelector('img')?.alt || el.textContent.trim()
-    );
-    if (colorLabel !== selectedColorName) {
-      await safeClick(color.anchor, page);
-      await page.waitForTimeout(1000);
-      await processColor(colorLabel, page, allShopifyRows, { title, descriptionHtml, finalProductTags, handle, url, sizes });
+  // Get the initially selected color if exists
+  let initialColor = null;
+  if (colors.length > 0) {
+    try {
+      const selectedColorElement = await page.$('span[data-testid="selected-color-name"]');
+      if (selectedColorElement) {
+        initialColor = await selectedColorElement.textContent();
+      }
+    } catch (error) {
+      console.log("Could not get initial color selection");
     }
   }
 
-  if (!colors.length && sizes.length) {
-    for (const size of sizes) {
-      await safeClick(size.anchor, page);
-      await page.waitForTimeout(1000);
-      const sizeLabel = await size.anchor.evaluate(el => el.textContent.trim());
+  if (colors.length > 0) {
+    for (const color of colors) {
+      // Get color label before clicking to avoid stale element reference
+      const colorLabel = await color.anchor.evaluate(el =>
+        el.getAttribute('aria-label')?.replace('Color: ', '') ||
+        el.querySelector('img')?.alt || el.textContent.trim()
+      );
+
+      // Only click if this isn't the initially selected color
+      if (!initialColor || colorLabel !== initialColor.trim()) {
+        await safeClick(color.anchor, page);
+        await page.waitForTimeout(1000);
+      }
+
+      const mainImage = await extractMainImage(page);
       const priceText = await extractDisplayedCostPerItem(page);
       const { costPerItem, variantPrice, compareAtPrice } = calculatePrices(priceText);
-      const mainImage = await extractMainImage(page);
+
+      if (sizes.length > 0) {
+        const refreshedSizes = await getVariantGroups(page);
+        const updatedSizes = refreshedSizes["Size"] || [];
+        
+        // Get initially selected size if exists
+        let initialSize = null;
+        try {
+          const selectedSizeElement = await page.$('span[data-auto="size-picker-selected-value"], span.label.updated-label.margin-left-xxxs');
+          if (selectedSizeElement) {
+            initialSize = await selectedSizeElement.textContent();
+          }
+        } catch (error) {
+          console.log("Could not get initial size selection");
+        }
+
+        for (const size of updatedSizes) {
+          // Get size label before clicking
+          const sizeLabel = await size.anchor.evaluate(el => el.textContent.trim());
+
+          // Only click if this isn't the initially selected size
+          if (!initialSize || sizeLabel !== initialSize.trim()) {
+            await safeClick(size.anchor, page);
+            await page.waitForTimeout(1000);
+          }
+
+          allShopifyRows.push({
+            Handle: handle,
+            Title: allShopifyRows.length === 0 ? title : "",
+            "Body (HTML)": allShopifyRows.length === 0 ? descriptionHtml : "",
+            Vendor: "Macy's",
+            Type: "Footwear",
+            Tags: allShopifyRows.length === 0 ? finalProductTags : "",
+            "Option1 Name": "Color",
+            "Option1 Value": colorLabel,
+            "Option2 Name": "Size",
+            "Option2 Value": sizeLabel,
+            "Variant SKU": extractSKU(url),
+            "Variant Price": variantPrice,
+            "Variant Compare At Price": compareAtPrice,
+            "Cost per item": costPerItem,
+            "Image Src": mainImage,
+            "Image Alt Text": `${title} - ${colorLabel} ${sizeLabel}`,
+            "Variant Image": mainImage,
+            original_product_url: url
+          });
+        }
+      } else {
+        allShopifyRows.push({
+          Handle: handle,
+          Title: allShopifyRows.length === 0 ? title : "",
+          "Body (HTML)": allShopifyRows.length === 0 ? descriptionHtml : "",
+          Vendor: "Macy's",
+          Type: "Footwear",
+          Tags: allShopifyRows.length === 0 ? finalProductTags : "",
+          "Option1 Name": "Color",
+          "Option1 Value": colorLabel,
+          "Variant SKU": extractSKU(url),
+          "Variant Price": variantPrice,
+          "Variant Compare At Price": compareAtPrice,
+          "Cost per item": costPerItem,
+          "Image Src": mainImage,
+          "Image Alt Text": `${title} - ${colorLabel}`,
+          "Variant Image": mainImage,
+          original_product_url: url
+        });
+      }
+    }
+  } else if (sizes.length > 0) {
+    const mainImage = await extractMainImage(page);
+    const priceText = await extractDisplayedCostPerItem(page);
+    const { costPerItem, variantPrice, compareAtPrice } = calculatePrices(priceText);
+
+    // Get initially selected size if exists
+    let initialSize = null;
+    try {
+      const selectedSizeElement = await page.$('span[data-auto="size-picker-selected-value"], span.label.updated-label.margin-left-xxxs');
+      if (selectedSizeElement) {
+        initialSize = await selectedSizeElement.textContent();
+      }
+    } catch (error) {
+      console.log("Could not get initial size selection");
+    }
+
+    for (const size of sizes) {
+      const sizeLabel = await size.anchor.evaluate(el => el.textContent.trim());
+
+      // Only click if this isn't the initially selected size
+      if (!initialSize || sizeLabel !== initialSize.trim()) {
+        await safeClick(size.anchor, page);
+        await page.waitForTimeout(1000);
+      }
 
       allShopifyRows.push({
         Handle: handle,
-        Title: "",
-        "Body (HTML)": "",
+        Title: allShopifyRows.length === 0 ? title : "",
+        "Body (HTML)": allShopifyRows.length === 0 ? descriptionHtml : "",
         Vendor: "Macy's",
         Type: "Footwear",
-        Tags: "",
+        Tags: allShopifyRows.length === 0 ? finalProductTags : "",
         "Option1 Name": "Size",
         "Option1 Value": sizeLabel,
         "Variant SKU": extractSKU(url),
@@ -161,20 +253,18 @@ export async function extractMacyProductData(page, url, extraTags) {
         original_product_url: url
       });
     }
-  }
-
-  if (!colors.length && !sizes.length) {
+  } else {
+    const mainImage = await extractMainImage(page);
     const priceText = await extractDisplayedCostPerItem(page);
     const { costPerItem, variantPrice, compareAtPrice } = calculatePrices(priceText);
-    const mainImage = await extractMainImage(page);
 
     allShopifyRows.push({
       Handle: handle,
-      Title: "",
-      "Body (HTML)": "",
+      Title: title,
+      "Body (HTML)": descriptionHtml,
       Vendor: "Macy's",
       Type: "Footwear",
-      Tags: "",
+      Tags: finalProductTags,
       "Variant SKU": extractSKU(url),
       "Variant Price": variantPrice,
       "Variant Compare At Price": compareAtPrice,
@@ -186,71 +276,5 @@ export async function extractMacyProductData(page, url, extraTags) {
     });
   }
 
-  if (allShopifyRows.length > 0) {
-    allShopifyRows[0].Title = title;
-    allShopifyRows[0]["Body (HTML)"] = descriptionHtml;
-    allShopifyRows[0].Tags = finalProductTags;
-  }
-
   return allShopifyRows;
-}
-
-async function processColor(colorLabel, page, allShopifyRows, context) {
-  const { title, descriptionHtml, finalProductTags, handle, url, sizes } = context;
-  const mainImage = await extractMainImage(page);
-
-  if (sizes.length > 0) {
-    const refreshedSizes = await getVariantGroups(page);
-    const updatedSizes = refreshedSizes["Size"] || [];
-    for (const size of updatedSizes) {
-      await safeClick(size.anchor, page);
-      await page.waitForTimeout(1000);
-      const sizeLabel = await size.anchor.evaluate(el => el.textContent.trim());
-      const priceText = await extractDisplayedCostPerItem(page);
-      const { costPerItem, variantPrice, compareAtPrice } = calculatePrices(priceText);
-
-      allShopifyRows.push({
-        Handle: handle,
-        Title: "",
-        "Body (HTML)": "",
-        Vendor: "Macy's",
-        Type: "Footwear",
-        Tags: "",
-        "Option1 Name": "Color",
-        "Option1 Value": colorLabel,
-        "Option2 Name": "Size",
-        "Option2 Value": sizeLabel,
-        "Variant SKU": extractSKU(url),
-        "Variant Price": variantPrice,
-        "Variant Compare At Price": compareAtPrice,
-        "Cost per item": costPerItem,
-        "Image Src": mainImage,
-        "Image Alt Text": `${title} - ${colorLabel} ${sizeLabel}`,
-        "Variant Image": mainImage,
-        original_product_url: url
-      });
-    }
-  } else {
-    const priceText = await extractDisplayedCostPerItem(page);
-    const { costPerItem, variantPrice, compareAtPrice } = calculatePrices(priceText);
-
-    allShopifyRows.push({
-      Handle: handle,
-      Title: "",
-      "Body (HTML)": "",
-      Vendor: "Macy's",
-      Type: "Footwear",
-      Tags: "",
-      "Option1 Name": "Color",
-      "Option1 Value": colorLabel,
-      "Variant SKU": extractSKU(url),
-      "Variant Price": variantPrice,
-      "Variant Compare At Price": compareAtPrice,
-      "Cost per item": costPerItem,
-      "Image Src": mainImage,
-      "Image Alt Text": `${title} - ${colorLabel}`,
-      "Variant Image": mainImage,
-      original_product_url: url
-    });
-  }
 }
