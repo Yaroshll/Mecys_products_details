@@ -15,7 +15,7 @@ async function safeClick(element, page, timeout = 15000) {
     console.warn(`Standard click failed: ${error.message}`);
     try {
       await element.evaluate(el => {
-        el.scrollIntoView({block: "center", behavior: "instant"});
+        el.scrollIntoView({ block: "center", behavior: "instant" });
         el.click();
       });
       await page.waitForTimeout(1500);
@@ -67,7 +67,7 @@ export async function extractMainImage(page) {
 export async function extractBreadcrumbs(page) {
   try {
     await page.waitForSelector(SELECTORS.BREADCRUMBS.LINKS, { timeout: 15000 });
-    return await page.$$eval(SELECTORS.BREADCRUMBS.LINKS, anchors => 
+    return await page.$$eval(SELECTORS.BREADCRUMBS.LINKS, anchors =>
       anchors.map(a => {
         const text = a.textContent.trim();
         return text && !text.match(/home|macys/i) ? text : null;
@@ -81,14 +81,11 @@ export async function extractBreadcrumbs(page) {
 export async function extractFullDescription(page) {
   let description = "";
   try {
-    // Click description tab if exists
     const descTab = await page.locator(SELECTORS.PRODUCT.DESCRIPTION_BUTTON).first();
     if (await descTab.isVisible()) {
       await safeClick(descTab, page);
       await page.waitForTimeout(1000);
     }
-    
-    // Get description content
     await page.waitForSelector(SELECTORS.PRODUCT.DESCRIPTION_CONTENT, { timeout: 5000 });
     description = await page.$eval(SELECTORS.PRODUCT.DESCRIPTION_CONTENT, el => el.innerHTML);
   } catch (error) {
@@ -99,7 +96,7 @@ export async function extractFullDescription(page) {
 
 export async function extractMacyProductData(page, url, extraTags) {
   const allShopifyRows = [];
-  
+
   try {
     await gotoMacyWithRetries(page, url);
     await page.waitForLoadState("networkidle");
@@ -109,7 +106,7 @@ export async function extractMacyProductData(page, url, extraTags) {
     const descriptionHtml = await extractFullDescription(page);
     const breadcrumbs = await extractBreadcrumbs(page);
     const handle = formatHandleFromUrl(url);
-    
+
     const finalProductTags = [
       ...new Set([
         ...breadcrumbs.split(",").map(t => t.trim()),
@@ -117,49 +114,108 @@ export async function extractMacyProductData(page, url, extraTags) {
       ])
     ].join(", ");
 
-    // Process color variants
     const colorSwatches = await page.$$(SELECTORS.PRODUCT.COLOR_RADIO_LABELS);
+
+    // ✅ Step 1: Handle pre-selected color
+    const selectedColorBeforeLoop = await page.$eval(
+      SELECTORS.PRODUCT.SELECTED_COLOR_VALUE_DISPLAY,
+      el => el.textContent.trim()
+    ).catch(() => null);
+
+    if (selectedColorBeforeLoop) {
+      console.log(`Handling pre-selected color: ${selectedColorBeforeLoop}`);
+      const mainImage = await extractMainImage(page);
+      const sizeChips = await page.$$(SELECTORS.PRODUCT.SIZE_RADIO_LABELS);
+
+      if (sizeChips.length > 0) {
+        for (const sizeChip of sizeChips) {
+          await safeClick(sizeChip, page);
+          await page.waitForTimeout(1500);
+          const sizeName = await sizeChip.evaluate(el => el.textContent.trim());
+          const priceText = await extractDisplayedCostPerItem(page);
+          const prices = calculatePrices(priceText);
+
+          allShopifyRows.push({
+            Handle: handle,
+            Title: allShopifyRows.length === 0 ? title : "",
+            "Body (HTML)": allShopifyRows.length === 0 ? descriptionHtml : "",
+            Vendor: "Macy's",
+            Type: "Footwear",
+            Tags: allShopifyRows.length === 0 ? finalProductTags : "",
+            "Option1 Name": "Color",
+            "Option1 Value": selectedColorBeforeLoop,
+            "Option2 Name": "Size",
+            "Option2 Value": sizeName,
+            "Variant SKU": extractSKU(url),
+            "Variant Price": prices.variantPrice,
+            "Variant Compare At Price": prices.compareAtPrice,
+            "Cost per item": prices.costPerItem,
+            "Image Src": mainImage,
+            "Image Alt Text": `${title} - ${selectedColorBeforeLoop} ${sizeName}`,
+            "Variant Image": mainImage,
+            original_product_url: url
+          });
+        }
+      } else {
+        const priceText = await extractDisplayedCostPerItem(page);
+        const prices = calculatePrices(priceText);
+
+        allShopifyRows.push({
+          Handle: handle,
+          Title: allShopifyRows.length === 0 ? title : "",
+          "Body (HTML)": allShopifyRows.length === 0 ? descriptionHtml : "",
+          Vendor: "Macy's",
+          Type: "Footwear",
+          Tags: allShopifyRows.length === 0 ? finalProductTags : "",
+          "Option1 Name": "Color",
+          "Option1 Value": selectedColorBeforeLoop,
+          "Variant SKU": extractSKU(url),
+          "Variant Price": prices.variantPrice,
+          "Variant Compare At Price": prices.compareAtPrice,
+          "Cost per item": prices.costPerItem,
+          "Image Src": mainImage,
+          "Image Alt Text": `${title} - ${selectedColorBeforeLoop}`,
+          "Variant Image": mainImage,
+          original_product_url: url
+        });
+      }
+    }
+
+    // ✅ Step 2: Handle other colors (if any)
     if (colorSwatches.length > 0) {
       console.log(`Processing ${colorSwatches.length} color variants...`);
-      
+
       for (let i = 0; i < colorSwatches.length; i++) {
         const currentColors = await page.$$(SELECTORS.PRODUCT.COLOR_RADIO_LABELS);
         const colorSwatch = currentColors[i];
-        
         if (!colorSwatch) continue;
-        
-        // Get color name before clicking
-        const colorName = await colorSwatch.evaluate(el => 
-          el.getAttribute('aria-label')?.replace('Color: ', '') || 
-          el.querySelector('img')?.alt || 
+
+        const colorName = await colorSwatch.evaluate(el =>
+          el.getAttribute('aria-label')?.replace('Color: ', '') ||
+          el.querySelector('img')?.alt ||
           el.textContent.trim()
         );
-        
+
+        if (colorName === selectedColorBeforeLoop) {
+          console.log(`Skipping already handled color: ${colorName}`);
+          continue;
+        }
+
         console.log(`Selecting color: ${colorName}`);
         await safeClick(colorSwatch, page);
         await page.waitForTimeout(2000);
-        
+
         const mainImage = await extractMainImage(page);
-        
-        // Process sizes for this color
         const sizeChips = await page.$$(SELECTORS.PRODUCT.SIZE_RADIO_LABELS);
+
         if (sizeChips.length > 0) {
-          console.log(`Found ${sizeChips.length} sizes for color ${colorName}`);
-          
-          for (let j = 0; j < sizeChips.length; j++) {
-            const currentSizes = await page.$$(SELECTORS.PRODUCT.SIZE_RADIO_LABELS);
-            const sizeChip = currentSizes[j];
-            
-            if (!sizeChip) continue;
-            
-            const sizeName = await sizeChip.evaluate(el => el.textContent.trim());
-            console.log(`Selecting size: ${sizeName}`);
+          for (const sizeChip of sizeChips) {
             await safeClick(sizeChip, page);
             await page.waitForTimeout(1500);
-            
+            const sizeName = await sizeChip.evaluate(el => el.textContent.trim());
             const priceText = await extractDisplayedCostPerItem(page);
             const prices = calculatePrices(priceText);
-            
+
             allShopifyRows.push({
               Handle: handle,
               Title: allShopifyRows.length === 0 ? title : "",
@@ -182,10 +238,9 @@ export async function extractMacyProductData(page, url, extraTags) {
             });
           }
         } else {
-          // No sizes, just color
           const priceText = await extractDisplayedCostPerItem(page);
           const prices = calculatePrices(priceText);
-          
+
           allShopifyRows.push({
             Handle: handle,
             Title: allShopifyRows.length === 0 ? title : "",
@@ -206,75 +261,10 @@ export async function extractMacyProductData(page, url, extraTags) {
           });
         }
       }
-    } else {
-      // Handle products with no colors
-      const sizeChips = await page.$$(SELECTORS.PRODUCT.SIZE_RADIO_LABELS);
-      
-      if (sizeChips.length > 0) {
-        console.log(`Processing ${sizeChips.length} size variants...`);
-        
-        for (let i = 0; i < sizeChips.length; i++) {
-          const currentSizes = await page.$$(SELECTORS.PRODUCT.SIZE_RADIO_LABELS);
-          const sizeChip = currentSizes[i];
-          
-          if (!sizeChip) continue;
-          
-          const sizeName = await sizeChip.evaluate(el => el.textContent.trim());
-          console.log(`Selecting size: ${sizeName}`);
-          await safeClick(sizeChip, page);
-          await page.waitForTimeout(1500);
-          
-          const mainImage = await extractMainImage(page);
-          const priceText = await extractDisplayedCostPerItem(page);
-          const prices = calculatePrices(priceText);
-          
-          allShopifyRows.push({
-            Handle: handle,
-            Title: allShopifyRows.length === 0 ? title : "",
-            "Body (HTML)": allShopifyRows.length === 0 ? descriptionHtml : "",
-            Vendor: "Macy's",
-            Type: "Footwear",
-            Tags: allShopifyRows.length === 0 ? finalProductTags : "",
-            "Option1 Name": "Size",
-            "Option1 Value": sizeName,
-            "Variant SKU": extractSKU(url),
-            "Variant Price": prices.variantPrice,
-            "Variant Compare At Price": prices.compareAtPrice,
-            "Cost per item": prices.costPerItem,
-            "Image Src": mainImage,
-            "Image Alt Text": `${title} - ${sizeName}`,
-            "Variant Image": mainImage,
-            original_product_url: url
-          });
-        }
-      } else {
-        // No variants at all
-        console.log("Product has no variants");
-        const mainImage = await extractMainImage(page);
-        const priceText = await extractDisplayedCostPerItem(page);
-        const prices = calculatePrices(priceText);
-        
-        allShopifyRows.push({
-          Handle: handle,
-          Title: title,
-          "Body (HTML)": descriptionHtml,
-          Vendor: "Macy's",
-          Type: "Footwear",
-          Tags: finalProductTags,
-          "Variant SKU": extractSKU(url),
-          "Variant Price": prices.variantPrice,
-          "Variant Compare At Price": prices.compareAtPrice,
-          "Cost per item": prices.costPerItem,
-          "Image Src": mainImage,
-          "Image Alt Text": title,
-          "Variant Image": mainImage,
-          original_product_url: url
-        });
-      }
     }
-    
+
     return allShopifyRows;
-    
+
   } catch (error) {
     console.error(`Error extracting product data: ${error.message}`);
     throw error;
