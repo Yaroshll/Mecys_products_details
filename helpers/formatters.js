@@ -28,7 +28,7 @@ export function formatHandleFromUrl(url) {
  * @param {string} url - The product URL.
  * @returns {string} A potential SKU.
  */
-export **function** extractSKU(url) { // <-- Make sure 'export' is here
+export function extractSKU(url) { // <-- Make sure 'export' is here
   try {
     // Macy's URLs often have product IDs that can serve as a simple SKU
     const match = url.match(/ID=(\d+)/i) || url.match(/-(\d+)\.html/i);
